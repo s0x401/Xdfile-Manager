@@ -195,6 +195,16 @@ type xdfileRemoteClipboardPasteDoneMsg struct {
 	Err        error
 }
 
+type xdfileLocalClipboardPasteDoneMsg struct {
+	Pending      *xdfilePendingClipboardPaste
+	SourcePath   string
+	TargetPath   string
+	TopLevel     bool
+	Action       xdfileAction
+	ReplacedPath string
+	Err          error
+}
+
 type xdfilePanelDirState struct {
 	Path    string
 	ModTime time.Time
@@ -209,6 +219,18 @@ type xdfileDeleteUndoItem struct {
 type xdfileDeleteUndoBatch struct {
 	Root  string
 	Items []xdfileDeleteUndoItem
+	At    time.Time
+}
+
+type xdfileClipboardMoveUndoItem struct {
+	OriginalPath string
+	MovedPath    string
+	ReplacedPath string
+}
+
+type xdfileClipboardMoveUndoBatch struct {
+	Root  string
+	Items []xdfileClipboardMoveUndoItem
 	At    time.Time
 }
 
@@ -229,6 +251,8 @@ type xdfilePendingClipboardPaste struct {
 	Renamed          int
 	LastTarget       string
 	FocusTarget      string
+	MoveUndoRoot     string
+	MoveUndoItems    []xdfileClipboardMoveUndoItem
 }
 
 type xdfilePendingClipboardPasteItem struct {
@@ -264,33 +288,34 @@ type xdfileModel struct {
 	netboxConnections  []xdfileNetBoxConnection
 	quickView          xdfileQuickView
 
-	statusText            string
-	statusError           bool
-	statusSpinnerIndex    int
-	backgroundTaskBusy    bool
-	lastClick             xdfileClickState
-	clipboardPath         string
-	clipboardPaths        []string
-	clipboardCut          bool
-	openMenu              xdfileAction
-	menuCursor            int
-	contextMenu           xdfileMenu
-	contextMenuAnchor     xdfileRect
-	footerCtrlHintUntil   time.Time
-	commandMenuPath       []int
-	commandInsertPath     []int
-	commandInsertIndex    int
-	commandEditPath       []int
-	commandEditIndex      int
-	commandPromptHistory  map[string]string
-	pendingCommandMenu    *xdfilePendingCommandMenu
-	commandMenuTempFiles  []string
-	remoteClipboardDirs   []string
-	deleteUndoStack       []xdfileDeleteUndoBatch
-	pendingClipboardPaste *xdfilePendingClipboardPaste
-	terminalStarting      bool
-	hover                 xdfileHoverState
-	panelSearch           xdfilePanelSearchState
+	statusText             string
+	statusError            bool
+	statusSpinnerIndex     int
+	backgroundTaskBusy     bool
+	lastClick              xdfileClickState
+	clipboardPath          string
+	clipboardPaths         []string
+	clipboardCut           bool
+	openMenu               xdfileAction
+	menuCursor             int
+	contextMenu            xdfileMenu
+	contextMenuAnchor      xdfileRect
+	footerCtrlHintUntil    time.Time
+	commandMenuPath        []int
+	commandInsertPath      []int
+	commandInsertIndex     int
+	commandEditPath        []int
+	commandEditIndex       int
+	commandPromptHistory   map[string]string
+	pendingCommandMenu     *xdfilePendingCommandMenu
+	commandMenuTempFiles   []string
+	remoteClipboardDirs    []string
+	deleteUndoStack        []xdfileDeleteUndoBatch
+	clipboardMoveUndoStack []xdfileClipboardMoveUndoBatch
+	pendingClipboardPaste  *xdfilePendingClipboardPaste
+	terminalStarting       bool
+	hover                  xdfileHoverState
+	panelSearch            xdfilePanelSearchState
 }
 
 var xdfileRenderPreviewThumbnailFunc = func(m *xdfileModel, path string, width int, height int) (string, bool, error) {

@@ -89,7 +89,7 @@ func (m *xdfileModel) executeAction(action xdfileAction) tea.Cmd {
 	case xdfileActionDelete:
 		return m.openDeleteConfirm()
 	case xdfileActionUndoDelete:
-		return m.undoLastDelete()
+		return m.undoLastFileAction()
 	case xdfileActionHidden:
 		m.showHidden = !m.showHidden
 		m.reloadAllPanels()
@@ -202,11 +202,7 @@ func (m *xdfileModel) activateSelection() tea.Cmd {
 		return nil
 	}
 	if err := xdfileOpenPathFunc(entry.Path); err != nil {
-		m.openTextModal(
-			"Open failed",
-			fmt.Sprintf("Path: %s\n\nReason: %s", entry.Path, err),
-		)
-		m.setStatusErr(err)
+		m.setStatusErr(fmt.Errorf("open failed: %w", err))
 		return nil
 	}
 	m.setStatus("Opened %s", entry.Path)
@@ -305,6 +301,11 @@ func (m *xdfileModel) copyRemoteSelectionToClipboard(entries []xdfileEntry) tea.
 }
 
 func (m *xdfileModel) pasteClipboardToActivePanel() tea.Cmd {
+	if m.backgroundTaskBusy {
+		m.setStatus("Wait for the current background task to finish")
+		return nil
+	}
+
 	sources, cutMode, err := m.currentClipboardPayload()
 	if err != nil {
 		m.setStatusErr(err)
@@ -774,6 +775,7 @@ func (m *xdfileModel) closeXdfileResources() {
 	m.closeTerminalSession()
 	m.cleanupAllCommandMenuTempFiles()
 	m.cleanupRemoteClipboardDirs()
+	m.cleanupClipboardMoveUndoStack()
 	m.cleanupDeleteUndoStack()
 	if m.thumbnailGenerator != nil {
 		_ = m.thumbnailGenerator.CleanUp()

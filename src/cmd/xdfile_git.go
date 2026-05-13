@@ -7,12 +7,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 const xdfileGitStatusTimeout = 900 * time.Millisecond
+const xdfileGitStatusCacheTTL = 2 * time.Second
+const xdfileGitStatusCacheMaxEntries = 128
 
 type xdfileGitPanelInfo struct {
 	Active  bool
@@ -24,6 +27,18 @@ type xdfileGitPanelInfo struct {
 }
 
 var xdfileReadGitStatusFunc = xdfileReadGitStatus
+
+type xdfileGitStatusCacheEntry struct {
+	Info xdfileGitPanelInfo
+	At   time.Time
+}
+
+var (
+	xdfileGitPathOnce    sync.Once
+	xdfileGitPath        string
+	xdfileGitStatusMu    sync.Mutex
+	xdfileGitStatusCache = map[string]xdfileGitStatusCacheEntry{}
+)
 
 func (g xdfileGitPanelInfo) TitleLabel() string {
 	if !g.Active {
@@ -49,8 +64,13 @@ func xdfileReadGitStatus(dir string) xdfileGitPanelInfo {
 	if strings.TrimSpace(dir) == "" {
 		return xdfileGitPanelInfo{}
 	}
-	if _, err := exec.LookPath("git"); err != nil {
+	gitPath := xdfileGitExecutablePath()
+	if gitPath == "" {
 		return xdfileGitPanelInfo{}
+	}
+	dir = filepath.Clean(dir)
+	if cached, ok := xdfileCachedGitStatus(dir); ok {
+		return cached
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), xdfileGitStatusTimeout)
@@ -58,7 +78,7 @@ func xdfileReadGitStatus(dir string) xdfileGitPanelInfo {
 
 	cmd := exec.CommandContext(
 		ctx,
-		"git",
+		gitPath,
 		"-C", dir,
 		"status",
 		"--porcelain=v1",
@@ -70,10 +90,74 @@ func xdfileReadGitStatus(dir string) xdfileGitPanelInfo {
 	)
 	output, err := cmd.Output()
 	if err != nil {
+		xdfileStoreGitStatus(dir, xdfileGitPanelInfo{})
 		return xdfileGitPanelInfo{}
 	}
 
-	return xdfileParseGitStatusOutput(string(output))
+	info := xdfileParseGitStatusOutput(string(output))
+	xdfileStoreGitStatus(dir, info)
+	return info
+}
+
+func xdfileGitExecutablePath() string {
+	xdfileGitPathOnce.Do(func() {
+		if path, err := exec.LookPath("git"); err == nil {
+			xdfileGitPath = path
+		}
+	})
+	return xdfileGitPath
+}
+
+func xdfileCachedGitStatus(dir string) (xdfileGitPanelInfo, bool) {
+	xdfileGitStatusMu.Lock()
+	defer xdfileGitStatusMu.Unlock()
+
+	cached, ok := xdfileGitStatusCache[dir]
+	if !ok || time.Since(cached.At) >= xdfileGitStatusCacheTTL {
+		return xdfileGitPanelInfo{}, false
+	}
+	return xdfileCloneGitPanelInfo(cached.Info), true
+}
+
+func xdfileStoreGitStatus(dir string, info xdfileGitPanelInfo) {
+	xdfileGitStatusMu.Lock()
+	defer xdfileGitStatusMu.Unlock()
+	if len(xdfileGitStatusCache) >= xdfileGitStatusCacheMaxEntries {
+		xdfilePruneGitStatusCache(time.Now())
+	}
+	xdfileGitStatusCache[dir] = xdfileGitStatusCacheEntry{
+		Info: xdfileCloneGitPanelInfo(info),
+		At:   time.Now(),
+	}
+}
+
+func xdfilePruneGitStatusCache(now time.Time) {
+	for dir, cached := range xdfileGitStatusCache {
+		if now.Sub(cached.At) >= xdfileGitStatusCacheTTL {
+			delete(xdfileGitStatusCache, dir)
+		}
+	}
+	if len(xdfileGitStatusCache) < xdfileGitStatusCacheMaxEntries {
+		return
+	}
+	for dir := range xdfileGitStatusCache {
+		delete(xdfileGitStatusCache, dir)
+		if len(xdfileGitStatusCache) < xdfileGitStatusCacheMaxEntries {
+			return
+		}
+	}
+}
+
+func xdfileCloneGitPanelInfo(info xdfileGitPanelInfo) xdfileGitPanelInfo {
+	if len(info.Markers) == 0 {
+		return info
+	}
+	markers := make(map[string]string, len(info.Markers))
+	for key, value := range info.Markers {
+		markers[key] = value
+	}
+	info.Markers = markers
+	return info
 }
 
 func xdfileParseGitStatusOutput(output string) xdfileGitPanelInfo {

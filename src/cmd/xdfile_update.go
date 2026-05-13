@@ -365,6 +365,8 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case xdfileRemoteClipboardPasteDoneMsg:
 		return m, m.applyRemoteClipboardPasteDone(msg)
+	case xdfileLocalClipboardPasteDoneMsg:
+		return m, m.applyLocalClipboardPasteDone(msg)
 	default:
 		if m.modal.Kind == xdfileModalInput {
 			var cmd tea.Cmd

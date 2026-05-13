@@ -22,6 +22,9 @@ func (m *xdfileModel) continuePendingClipboardPaste(pending *xdfilePendingClipbo
 		conflict, cmd, err := m.applyPendingClipboardPasteItem(pending, item)
 		if err != nil {
 			m.pendingClipboardPaste = nil
+			if pending.CutMode {
+				m.pushClipboardMoveUndo(pending)
+			}
 			m.setStatusErr(err)
 			return nil
 		}
@@ -106,7 +109,8 @@ func (m *xdfileModel) applyPendingClipboardPasteItem(
 	targetInfo, err := os.Stat(targetPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil, m.applyPendingClipboardPasteTransfer(pending, sourcePath, targetPath, item.TopLevel)
+			cmd := m.applyPendingClipboardPasteTransfer(pending, sourcePath, targetPath, item.TopLevel, xdfileActionPaste)
+			return false, cmd, nil
 		}
 		return false, nil, err
 	}
@@ -149,19 +153,16 @@ func (m *xdfileModel) applyPendingClipboardPasteTransfer(
 	sourcePath string,
 	targetPath string,
 	topLevel bool,
-) error {
-	var err error
-	if pending.CutMode {
-		err = xdfileMovePath(sourcePath, targetPath)
-	} else {
-		err = xdfileCopyPath(sourcePath, targetPath)
+	action xdfileAction,
+) tea.Cmd {
+	m.setStatus("Pasting %s", xdfileClipboardPasteBase(targetPath))
+	work := func() error {
+		if pending.CutMode {
+			return xdfileMovePath(sourcePath, targetPath)
+		}
+		return xdfileCopyPath(sourcePath, targetPath)
 	}
-	if err != nil {
-		return err
-	}
-
-	pending.recordTarget(targetPath, topLevel)
-	return nil
+	return m.localClipboardPasteCmd(pending, sourcePath, targetPath, "", topLevel, action, work)
 }
 
 func (pending *xdfilePendingClipboardPaste) recordTarget(targetPath string, topLevel bool) {
@@ -292,6 +293,9 @@ func (m *xdfileModel) resolvePendingClipboardPasteConflict(action xdfileAction) 
 	cmd, err := m.applyPendingClipboardPasteConflictAction(pending, action, sourcePath, targetPath, topLevel)
 	if err != nil {
 		m.pendingClipboardPaste = nil
+		if pending.CutMode {
+			m.pushClipboardMoveUndo(pending)
+		}
 		m.setStatusErr(err)
 		return nil
 	}
@@ -318,11 +322,22 @@ func (m *xdfileModel) applyPendingClipboardPasteConflictAction(
 	}
 	switch action {
 	case xdfileActionPasteConflictOverwrite:
-		if err := xdfileReplacePath(sourcePath, targetPath, pending.CutMode); err != nil {
-			return nil, err
+		if pending.CutMode {
+			return m.applyPendingClipboardPasteMoveReplace(pending, sourcePath, targetPath, topLevel)
+		} else {
+			m.setStatus("Replacing %s", xdfileClipboardPasteBase(targetPath))
+			return m.localClipboardPasteCmd(
+				pending,
+				sourcePath,
+				targetPath,
+				"",
+				topLevel,
+				xdfileActionPasteConflictOverwrite,
+				func() error {
+					return xdfileReplacePath(sourcePath, targetPath, false)
+				},
+			), nil
 		}
-		pending.recordTarget(targetPath, topLevel)
-		pending.Overwritten++
 	case xdfileActionPasteConflictSkip:
 		pending.Skipped++
 		if pending.CutMode {
@@ -333,14 +348,75 @@ func (m *xdfileModel) applyPendingClipboardPasteConflictAction(
 		if err != nil {
 			return nil, err
 		}
-		if err := m.applyPendingClipboardPasteTransfer(pending, sourcePath, renamedTarget, topLevel); err != nil {
-			return nil, err
-		}
-		pending.Renamed++
+		return m.applyPendingClipboardPasteTransfer(pending, sourcePath, renamedTarget, topLevel, xdfileActionPasteConflictRename), nil
 	default:
 		return nil, fmt.Errorf("unknown paste conflict action: %s", action)
 	}
 	return nil, nil
+}
+
+func (m *xdfileModel) localClipboardPasteCmd(
+	pending *xdfilePendingClipboardPaste,
+	sourcePath string,
+	targetPath string,
+	replacedPath string,
+	topLevel bool,
+	action xdfileAction,
+	work func() error,
+) tea.Cmd {
+	run := func() tea.Msg {
+		var err error
+		if work != nil {
+			err = work()
+		}
+		return xdfileLocalClipboardPasteDoneMsg{
+			Pending:      pending,
+			SourcePath:   sourcePath,
+			TargetPath:   targetPath,
+			TopLevel:     topLevel,
+			Action:       action,
+			ReplacedPath: replacedPath,
+			Err:          err,
+		}
+	}
+	return tea.Batch(run, m.startBackgroundTask())
+}
+
+func (m *xdfileModel) applyLocalClipboardPasteDone(msg xdfileLocalClipboardPasteDoneMsg) tea.Cmd {
+	m.stopBackgroundTask()
+	pending := msg.Pending
+	if pending == nil {
+		pending = m.pendingClipboardPaste
+	}
+	if msg.Err != nil {
+		m.pendingClipboardPaste = nil
+		if pending != nil && pending.CutMode {
+			m.pushClipboardMoveUndo(pending)
+			m.cleanupEmptyClipboardMoveUndoRoot(pending)
+		}
+		m.setStatusErr(msg.Err)
+		return nil
+	}
+	if pending == nil {
+		return nil
+	}
+
+	pending.recordTarget(msg.TargetPath, msg.TopLevel)
+	switch msg.Action {
+	case xdfileActionPasteConflictOverwrite:
+		pending.Overwritten++
+		if pending.CutMode {
+			pending.recordMoveUndo(msg.SourcePath, msg.TargetPath, msg.ReplacedPath)
+		}
+	case xdfileActionPasteConflictRename:
+		pending.Renamed++
+		pending.recordMoveUndo(msg.SourcePath, msg.TargetPath, "")
+	default:
+		pending.recordMoveUndo(msg.SourcePath, msg.TargetPath, "")
+	}
+
+	m.pendingClipboardPaste = nil
+	return m.continuePendingClipboardPaste(pending)
 }
 
 func (m *xdfileModel) finishPendingClipboardPaste(pending *xdfilePendingClipboardPaste) tea.Cmd {
@@ -351,6 +427,9 @@ func (m *xdfileModel) finishPendingClipboardPaste(pending *xdfilePendingClipboar
 	m.pendingClipboardPaste = nil
 	m.reloadAllPanels()
 	m.focusClipboardPasteTarget(pending)
+	if pending.CutMode {
+		m.pushClipboardMoveUndo(pending)
+	}
 
 	var cmd tea.Cmd
 	if pending.CutMode {

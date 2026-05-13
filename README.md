@@ -2,6 +2,10 @@
 
 双栏终端文件管理器，支持本地文件、命令行、预览、F2 宏命令、主题和 SSH / NetBox。
 
+### 推荐Windows Terminal + Xdfile Manager组合使用
+
+https://github.com/microsoft/terminal
+
 ## 启动
 
 Windows：

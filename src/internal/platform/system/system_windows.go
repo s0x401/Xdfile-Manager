@@ -14,7 +14,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/s0x401/xdfile-manager/src/internal/utils"
 	"golang.org/x/sys/windows"
 )
 
@@ -39,6 +38,12 @@ const (
 
 	shellShowNormal     = 1
 	seeMaskInvokeIDList = 0x0000000C
+	seeMaskFlagNoUI     = 0x00000400
+
+	windowsErrorOutOfMemory            syscall.Errno = 8
+	windowsErrorBadFormat              syscall.Errno = 11
+	windowsErrorNoAssociation          syscall.Errno = 1155
+	windowsErrorAccessDisabledByPolicy syscall.Errno = 1260
 )
 
 type dropFiles struct {
@@ -87,7 +92,6 @@ var (
 	procCopyMemory   = kernel32.NewProc("RtlMoveMemory")
 
 	procDragQueryFileW          = shell32.NewProc("DragQueryFileW")
-	procShellExecuteWOpen       = shell32.NewProc("ShellExecuteW")
 	procShellExecuteExW         = shell32.NewProc("ShellExecuteExW")
 	kernel32ProcGetShortPathW   = kernel32.NewProc("GetShortPathNameW")
 	kernel32ProcGetACP          = kernel32.NewProc("GetACP")
@@ -240,19 +244,10 @@ func openPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("empty path")
 	}
-	if err := openPathDetached(path); err == nil {
-		return nil
-	}
-	return openPathWithShellExecute(path)
+	return openPathWithShellExecuteEx(path)
 }
 
-func openPathDetached(path string) error {
-	cmd := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", path)
-	utils.DetachFromTerminal(cmd)
-	return cmd.Start()
-}
-
-func openPathWithShellExecute(path string) error {
+func openPathWithShellExecuteEx(path string) error {
 	verbPtr, err := windows.UTF16PtrFromString("open")
 	if err != nil {
 		return fmt.Errorf("encode Windows open verb: %w", err)
@@ -262,19 +257,57 @@ func openPathWithShellExecute(path string) error {
 		return fmt.Errorf("encode Windows open path: %w", err)
 	}
 
-	result, _, callErr := procShellExecuteWOpen.Call(
-		0,
-		uintptr(unsafe.Pointer(verbPtr)),
-		uintptr(unsafe.Pointer(pathPtr)),
-		0,
-		0,
-		uintptr(shellShowNormal),
-	)
-	if result > 32 {
+	sei := shellExecuteInfo{
+		CbSize: uint32(unsafe.Sizeof(shellExecuteInfo{})),
+		FMask:  seeMaskFlagNoUI,
+		LpVerb: verbPtr,
+		LpFile: pathPtr,
+		NShow:  shellShowNormal,
+	}
+
+	result, _, callErr := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
+	if result != 0 {
 		return nil
 	}
 
-	switch result {
+	return shellExecuteOpenError(callErr, sei.HInstApp)
+}
+
+func shellExecuteOpenError(callErr error, hInst windows.Handle) error {
+	if errno, ok := callErr.(syscall.Errno); ok && errno != 0 {
+		return shellOpenErrnoError(errno)
+	}
+
+	code := uintptr(hInst)
+	if code > 0 && code <= 32 {
+		return shellOpenCodeError(code)
+	}
+
+	return fmt.Errorf("open path failed")
+}
+
+func shellOpenErrnoError(errno syscall.Errno) error {
+	switch errno {
+	case windowsErrorAccessDisabledByPolicy:
+		return fmt.Errorf("blocked by Windows policy")
+	case syscall.ERROR_ACCESS_DENIED:
+		return fmt.Errorf("access denied or blocked by Windows policy")
+	case windowsErrorNoAssociation:
+		return fmt.Errorf("no application is associated with this file type")
+	case syscall.ERROR_FILE_NOT_FOUND:
+		return fmt.Errorf("file not found")
+	case syscall.ERROR_PATH_NOT_FOUND:
+		return fmt.Errorf("path not found")
+	case windowsErrorBadFormat:
+		return fmt.Errorf("invalid executable format")
+	case windowsErrorOutOfMemory:
+		return fmt.Errorf("not enough memory to open this item")
+	}
+	return fmt.Errorf("open path: %w", errno)
+}
+
+func shellOpenCodeError(code uintptr) error {
+	switch code {
 	case shellOpenAccessDenied:
 		return fmt.Errorf("access denied or blocked by Windows policy")
 	case shellOpenNoAssoc:
@@ -288,11 +321,7 @@ func openPathWithShellExecute(path string) error {
 	case shellOpenOutOfMemory:
 		return fmt.Errorf("not enough memory to open this item")
 	}
-
-	if callErr != nil && callErr != windows.ERROR_SUCCESS {
-		return fmt.Errorf("open path: %w", callErr)
-	}
-	return fmt.Errorf("open path failed with ShellExecuteW code %d", result)
+	return fmt.Errorf("open path failed with ShellExecute code %d", code)
 }
 
 func showProperties(path string) error {
