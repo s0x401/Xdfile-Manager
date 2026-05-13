@@ -79,6 +79,9 @@ func (m *xdfileModel) renderStatusText(width int) string {
 	if text == "" {
 		text = "Ready"
 	}
+	if progress := m.fileOperationProgressStatus(); progress != "" {
+		text = strings.TrimSpace(text + " " + progress)
+	}
 	content := symbol + " " + text
 	style := xdfileStatusOKStyle
 	if m.statusError {

@@ -263,6 +263,10 @@ func showProperties(path string) error {
 	return fmt.Errorf("system properties dialog is unavailable on Linux")
 }
 
+func showContextMenu(_ []string) error {
+	return fmt.Errorf("native Windows context menu is unavailable on Linux")
+}
+
 func configureManagedExternalCommand(cmd *exec.Cmd) {
 }
 

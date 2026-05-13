@@ -31,6 +31,10 @@ func ShowProperties(path string) error {
 	return showProperties(path)
 }
 
+func ShowContextMenu(paths []string) error {
+	return showContextMenu(paths)
+}
+
 func ConfigureManagedExternalCommand(cmd *exec.Cmd) {
 	configureManagedExternalCommand(cmd)
 }

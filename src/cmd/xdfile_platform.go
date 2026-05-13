@@ -11,6 +11,7 @@ const xdfileCreateNoWindow = 0x08000000
 
 var xdfileHostTerminal = platformterminal.DetectCurrent()
 var xdfileShowSystemPropertiesFunc = platformsystem.ShowProperties
+var xdfileShowNativeContextMenuFunc = platformsystem.ShowContextMenu
 
 func xdfileWindowRenderWidth(width int) int {
 	return xdfileWindowRenderWidthForHost(width, xdfileHostTerminal)

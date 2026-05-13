@@ -37,6 +37,17 @@ func (p *xdfilePanel) clearMarked() {
 	p.RangeAnchor = -1
 }
 
+func (p *xdfilePanel) cloneMarkedPaths() map[string]struct{} {
+	if len(p.MarkedPaths) == 0 {
+		return nil
+	}
+	clone := make(map[string]struct{}, len(p.MarkedPaths))
+	for path := range p.MarkedPaths {
+		clone[path] = struct{}{}
+	}
+	return clone
+}
+
 func (p *xdfilePanel) resetRangeAnchor() {
 	p.RangeAnchor = -1
 }
@@ -125,6 +136,10 @@ func (p *xdfilePanel) syncMarkedEntries() {
 }
 
 func (p *xdfilePanel) selectRange(anchor int, target int, rows int) int {
+	return p.selectRangeWithBase(anchor, target, rows, nil)
+}
+
+func (p *xdfilePanel) selectRangeWithBase(anchor int, target int, rows int, base map[string]struct{}) int {
 	if len(p.Entries) == 0 {
 		p.clearMarked()
 		return 0
@@ -138,7 +153,10 @@ func (p *xdfilePanel) selectRange(anchor int, target int, rows int) int {
 
 	start := min(anchor, target)
 	end := max(anchor, target)
-	marked := make(map[string]struct{}, end-start+1)
+	marked := make(map[string]struct{}, len(base)+end-start+1)
+	for path := range base {
+		marked[path] = struct{}{}
+	}
 	count := 0
 	for i := start; i <= end; i++ {
 		entry := p.Entries[i]
@@ -148,7 +166,7 @@ func (p *xdfilePanel) selectRange(anchor int, target int, rows int) int {
 		marked[entry.Path] = struct{}{}
 		count++
 	}
-	if count == 0 {
+	if len(marked) == 0 {
 		p.MarkedPaths = nil
 	} else {
 		p.MarkedPaths = marked
@@ -156,40 +174,11 @@ func (p *xdfilePanel) selectRange(anchor int, target int, rows int) int {
 	return count
 }
 
-func (p *xdfilePanel) toggleRange(anchor int, target int) int {
-	if len(p.Entries) == 0 {
-		p.clearMarked()
-		return 0
+func (p *xdfilePanel) rangeSelectionAnchor() int {
+	if p.RangeAnchor >= 0 && p.RangeAnchor < len(p.Entries) {
+		return p.RangeAnchor
 	}
-
-	anchor = max(0, min(anchor, len(p.Entries)-1))
-	target = max(0, min(target, len(p.Entries)-1))
-	start := min(anchor, target)
-	end := max(anchor, target)
-
-	if p.MarkedPaths == nil {
-		p.MarkedPaths = make(map[string]struct{}, end-start+1)
-	}
-
-	changed := 0
-	for i := start; i <= end; i++ {
-		entry := p.Entries[i]
-		if entry.IsParent {
-			continue
-		}
-		if _, ok := p.MarkedPaths[entry.Path]; ok {
-			delete(p.MarkedPaths, entry.Path)
-		} else {
-			p.MarkedPaths[entry.Path] = struct{}{}
-		}
-		changed++
-	}
-
-	if len(p.MarkedPaths) == 0 {
-		p.MarkedPaths = nil
-	}
-	p.RangeAnchor = -1
-	return changed
+	return p.Cursor
 }
 
 func (p *xdfilePanel) firstSelectableIndex() int {
@@ -208,29 +197,6 @@ func (p *xdfilePanel) lastSelectableIndex() int {
 		}
 	}
 	return max(0, len(p.Entries)-1)
-}
-
-func (p *xdfilePanel) toggleRangeToBoundary(target int, rows int) int {
-	if len(p.Entries) == 0 {
-		p.clearMarked()
-		return 0
-	}
-
-	target = max(0, min(target, len(p.Entries)-1))
-	anchor := p.Cursor
-	if p.Cursor == target && p.RangeAnchor >= 0 && p.RangeAnchor < len(p.Entries) {
-		anchor = p.RangeAnchor
-	}
-
-	changed := p.toggleRange(anchor, target)
-	p.setCursor(target, rows)
-	if changed == 0 || p.markedCount() == 0 {
-		p.RangeAnchor = -1
-		return changed
-	}
-
-	p.RangeAnchor = anchor
-	return changed
 }
 
 func (p *xdfilePanel) visibleRows(totalHeight int) int {
@@ -270,6 +236,15 @@ func (p *xdfilePanel) move(delta int, rows int) {
 		p.Cursor = len(p.Entries) - 1
 	}
 	p.ensureVisible(rows)
+}
+
+func (p *xdfilePanel) scroll(delta int, rows int) {
+	if len(p.Entries) == 0 {
+		p.Scroll = 0
+		return
+	}
+	maxScroll := max(0, len(p.Entries)-rows)
+	p.Scroll = max(0, min(p.Scroll+delta, maxScroll))
 }
 
 func (p *xdfilePanel) setCursor(index int, rows int) {

@@ -66,6 +66,16 @@ type xdfileClickState struct {
 	at    time.Time
 }
 
+type xdfilePanelMouseState struct {
+	Active     bool
+	Panel      int
+	StartIndex int
+	LastIndex  int
+	Ctrl       bool
+	Dragging   bool
+	BaseMarked map[string]struct{}
+}
+
 type xdfileHoverState struct {
 	MenuAction   xdfileAction
 	MenuItem     int
@@ -293,6 +303,7 @@ type xdfileModel struct {
 	statusSpinnerIndex     int
 	backgroundTaskBusy     bool
 	lastClick              xdfileClickState
+	panelMouse             xdfilePanelMouseState
 	clipboardPath          string
 	clipboardPaths         []string
 	clipboardCut           bool
@@ -313,6 +324,9 @@ type xdfileModel struct {
 	deleteUndoStack        []xdfileDeleteUndoBatch
 	clipboardMoveUndoStack []xdfileClipboardMoveUndoBatch
 	pendingClipboardPaste  *xdfilePendingClipboardPaste
+	fileOperationCancel    func()
+	fileOperationProgress  *xdfileFileOperationProgress
+	fileOperationQueue     []xdfileFileOperation
 	terminalStarting       bool
 	hover                  xdfileHoverState
 	panelSearch            xdfilePanelSearchState

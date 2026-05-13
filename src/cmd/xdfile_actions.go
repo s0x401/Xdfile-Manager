@@ -61,6 +61,8 @@ func (m *xdfileModel) executeAction(action xdfileAction) tea.Cmd {
 		return m.openPreview()
 	case xdfileActionProperties:
 		return m.openProperties()
+	case xdfileActionWindowsContextMenu:
+		return m.openWindowsContextMenuForSelection()
 	case xdfileActionPaste:
 		return m.pasteClipboardToActivePanel()
 	case xdfileActionPasteConflictOverwrite:
@@ -336,16 +338,27 @@ func (m *xdfileModel) pasteClipboardToActivePanel() tea.Cmd {
 
 func (m *xdfileModel) openPanelContextMenu(panelIndex int, rect xdfileRect, x int, y int) tea.Cmd {
 	focusCmd := m.focusPanel(panelIndex)
-	rows := m.panels[panelIndex].visibleRows(rect.h)
+	panel := &m.panels[panelIndex]
+	rows := panel.visibleRows(rect.h)
 	row := y - (rect.y + 3)
 	index := -1
 	if row >= 0 && row < rows {
-		candidate := m.panels[panelIndex].Scroll + row
-		if candidate >= 0 && candidate < len(m.panels[panelIndex].Entries) {
+		candidate := panel.Scroll + row
+		if candidate >= 0 && candidate < len(panel.Entries) {
 			index = candidate
-			m.panels[panelIndex].setCursor(candidate, rows)
+			entry := panel.Entries[candidate]
+			if entry.IsParent || !panel.isMarked(entry) {
+				panel.clearMarked()
+			}
+			panel.setCursor(candidate, rows)
 		}
 	}
+	if index < 0 {
+		panel.clearMarked()
+	}
+	m.panelMouse = xdfilePanelMouseState{}
+	m.lastClick = xdfileClickState{panel: -1, row: -1}
+	m.syncQuickViewViewport()
 
 	m.contextMenu = xdfileMenu{
 		Action: xdfileActionContextMenu,
@@ -358,6 +371,36 @@ func (m *xdfileModel) openPanelContextMenu(panelIndex int, rect xdfileRect, x in
 	m.clearMouseHover()
 	m.setStatus("Opened context menu")
 	return focusCmd
+}
+
+func (m *xdfileModel) activeNativeContextMenuPaths() []string {
+	entries := m.activeFileSelectionEntries()
+	if len(entries) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsParent || xdfileIsNetBoxPath(entry.Path) {
+			continue
+		}
+		paths = append(paths, entry.Path)
+	}
+	return paths
+}
+
+func (m *xdfileModel) openWindowsContextMenuForSelection() tea.Cmd {
+	paths := m.activeNativeContextMenuPaths()
+	if len(paths) == 0 {
+		m.setStatus("Select a local file or directory first")
+		return nil
+	}
+	if err := xdfileShowNativeContextMenuFunc(paths); err != nil {
+		m.setStatusErr(err)
+		return nil
+	}
+	m.reloadAllPanels()
+	m.setStatus("Closed Windows context menu")
+	return nil
 }
 
 func (m *xdfileModel) panelContextMenuItems(panelIndex int, entryIndex int) []xdfileButton {
@@ -378,6 +421,7 @@ func (m *xdfileModel) panelContextMenuItems(panelIndex int, entryIndex int) []xd
 	remoteEntry := xdfileIsNetBoxPath(entry.Path)
 	remoteFile := remoteEntry && !entry.IsDir && !entry.IsParent
 	return []xdfileButton{
+		{Action: xdfileActionWindowsContextMenu, Label: "Windows menu", Disabled: entry.IsParent || remoteEntry},
 		{Action: xdfileActionOpen, Key: "Enter", Label: "Open", Disabled: remoteFile},
 		{Action: xdfileActionPreview, Key: "Ctrl+Q", Label: "Preview", Disabled: entry.IsParent || remoteEntry},
 		{Action: xdfileActionProperties, Key: "R", Label: "Properties", Disabled: entry.IsParent || remoteEntry},
@@ -546,24 +590,42 @@ func (m *xdfileModel) openRename() tea.Cmd {
 }
 
 func (m *xdfileModel) openTransferConfirm(action xdfileAction) tea.Cmd {
-	srcPanel := &m.panels[m.activePanel]
-	entry, ok := srcPanel.selected()
-	if !ok || entry.IsParent {
+	entries := m.activeFileSelectionEntries()
+	if len(entries) == 0 {
 		m.setStatus("Select a file or directory first")
 		return nil
 	}
-	if xdfileIsNetBoxPath(entry.Path) || xdfileIsNetBoxPath(m.panels[1-m.activePanel].Cwd) {
-		m.setStatus("Panel-to-panel SSH copy/move is unavailable; use clipboard copy/paste")
-		return nil
+	for _, entry := range entries {
+		if xdfileIsNetBoxPath(entry.Path) || xdfileIsNetBoxPath(m.panels[1-m.activePanel].Cwd) {
+			m.setStatus("Panel-to-panel SSH copy/move is unavailable; use clipboard copy/paste")
+			return nil
+		}
 	}
 	dstPanel := &m.panels[1-m.activePanel]
-	targetPath := xdfileJoinPath(dstPanel.Cwd, entry.Name)
+
+	sourcePaths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		sourcePaths = append(sourcePaths, entry.Path)
+	}
+
+	targetPath := dstPanel.Cwd
+	if len(entries) == 1 {
+		targetPath = xdfileJoinPath(dstPanel.Cwd, entries[0].Name)
+	}
 
 	title := "Copy Item"
-	desc := fmt.Sprintf("Copy %s into %s", entry.Path, dstPanel.Cwd)
+	desc := fmt.Sprintf("Copy %s into %s", entries[0].Path, dstPanel.Cwd)
+	if len(entries) > 1 {
+		title = "Copy Items"
+		desc = fmt.Sprintf("Copy %d selected items into %s", len(entries), dstPanel.Cwd)
+	}
 	if action == xdfileActionMove {
 		title = "Move Item"
-		desc = fmt.Sprintf("Move %s into %s", entry.Path, dstPanel.Cwd)
+		desc = fmt.Sprintf("Move %s into %s", entries[0].Path, dstPanel.Cwd)
+		if len(entries) > 1 {
+			title = "Move Items"
+			desc = fmt.Sprintf("Move %d selected items into %s", len(entries), dstPanel.Cwd)
+		}
 	}
 
 	m.modal = xdfileModal{
@@ -572,7 +634,8 @@ func (m *xdfileModel) openTransferConfirm(action xdfileAction) tea.Cmd {
 		Description: desc,
 		Action:      action,
 		Input:       m.modalInputModel(),
-		SourcePath:  entry.Path,
+		SourcePath:  entries[0].Path,
+		SourcePaths: sourcePaths,
 		TargetPath:  targetPath,
 		PanelIndex:  m.activePanel,
 	}
@@ -770,7 +833,21 @@ func (m *xdfileModel) closeModal() {
 	m.modal.Input.Blur()
 }
 
+func (m *xdfileModel) closeModalAndResumeFileQueue() tea.Cmd {
+	action := m.modal.Action
+	m.closeModal()
+	if action == xdfileActionFileOperationErrors {
+		return m.startNextQueuedFileOperation()
+	}
+	return nil
+}
+
 func (m *xdfileModel) closeXdfileResources() {
+	if m.fileOperationCancel != nil {
+		m.fileOperationCancel()
+		m.fileOperationCancel = nil
+	}
+	m.fileOperationQueue = nil
 	m.closeExclusiveTerminalSession()
 	m.closeTerminalSession()
 	m.cleanupAllCommandMenuTempFiles()

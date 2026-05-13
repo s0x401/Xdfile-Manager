@@ -33,12 +33,18 @@ func (m *xdfileModel) handleSortShortcut(msg tea.KeyMsg) (tea.Cmd, bool) {
 func (m *xdfileModel) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch msg.Type {
 	case tea.KeyCtrlC:
+		if m.cancelFileOperationIfBusy() {
+			return nil, true
+		}
 		if m.cancelManagedCommandIfBusy() {
 			return nil, true
 		}
 	}
 	switch msg.String() {
 	case "ctrl+c":
+		if m.cancelFileOperationIfBusy() {
+			return nil, true
+		}
 		if m.cancelManagedCommandIfBusy() {
 			return nil, true
 		}
@@ -481,22 +487,20 @@ func (m *xdfileModel) handlePanelKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.Type {
 	case tea.KeyShiftUp:
 		if len(panel.Entries) > 0 {
-			panel.toggleMarkedAt(panel.Cursor)
-			panel.move(-1, rows)
+			panel.selectRange(panel.rangeSelectionAnchor(), max(0, panel.Cursor-1), rows)
 			selectionChanged = true
 		}
 	case tea.KeyShiftDown:
 		if len(panel.Entries) > 0 {
-			panel.toggleMarkedAt(panel.Cursor)
-			panel.move(1, rows)
+			panel.selectRange(panel.rangeSelectionAnchor(), min(len(panel.Entries)-1, panel.Cursor+1), rows)
 			selectionChanged = true
 		}
 	case tea.KeyShiftLeft:
-		if panel.toggleRangeToBoundary(panel.firstSelectableIndex(), rows) > 0 {
+		if panel.selectRange(panel.rangeSelectionAnchor(), panel.firstSelectableIndex(), rows) > 0 {
 			selectionChanged = true
 		}
 	case tea.KeyShiftRight:
-		if panel.toggleRangeToBoundary(panel.lastSelectableIndex(), rows) > 0 {
+		if panel.selectRange(panel.rangeSelectionAnchor(), panel.lastSelectableIndex(), rows) > 0 {
 			selectionChanged = true
 		}
 	}
@@ -762,7 +766,7 @@ func (m *xdfileModel) handleModalKey(msg tea.KeyMsg) tea.Cmd {
 				m.closeModal()
 			}
 		case "enter", "esc", "q":
-			m.closeModal()
+			return m.closeModalAndResumeFileQueue()
 		}
 		return nil
 	case xdfileModalConfirm:

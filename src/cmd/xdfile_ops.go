@@ -1176,6 +1176,16 @@ func xdfileReplacePath(sourcePath string, targetPath string, move bool) error {
 	return nil
 }
 
+func xdfileCheckFileOperationContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func xdfileValidateTransferTarget(sourcePath string, targetPath string, info os.FileInfo) error {
 	sourceClean := filepath.Clean(sourcePath)
 	targetClean := filepath.Clean(targetPath)
@@ -1220,6 +1230,18 @@ func xdfilePathWithinRoot(root string, path string) bool {
 }
 
 func xdfileCopyPath(sourcePath string, targetPath string) error {
+	return xdfileCopyPathContext(context.Background(), sourcePath, targetPath, nil)
+}
+
+func xdfileCopyPathContext(
+	ctx context.Context,
+	sourcePath string,
+	targetPath string,
+	progress *xdfileFileOperationProgress,
+) error {
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		return err
+	}
 	info, err := os.Lstat(sourcePath)
 	if err != nil {
 		return err
@@ -1237,33 +1259,70 @@ func xdfileCopyPath(sourcePath string, targetPath string) error {
 	}
 
 	if info.IsDir() {
-		return xdfileCopyDir(sourcePath, targetPath, info)
+		return xdfileCopyDirContext(ctx, sourcePath, targetPath, info, progress)
 	}
-	return xdfileCopyFile(sourcePath, targetPath, info)
+	return xdfileCopyFileContext(ctx, sourcePath, targetPath, info, progress)
 }
 
 func xdfileCopyDir(sourcePath string, targetPath string, info os.FileInfo) error {
+	return xdfileCopyDirContext(context.Background(), sourcePath, targetPath, info, nil)
+}
+
+func xdfileCopyDirContext(
+	ctx context.Context,
+	sourcePath string,
+	targetPath string,
+	info os.FileInfo,
+	progress *xdfileFileOperationProgress,
+) error {
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
 		return err
 	}
 
 	items, err := os.ReadDir(sourcePath)
 	if err != nil {
+		_ = os.RemoveAll(targetPath)
 		return err
 	}
 
 	for _, item := range items {
+		if err := xdfileCheckFileOperationContext(ctx); err != nil {
+			_ = os.RemoveAll(targetPath)
+			return err
+		}
 		childSource := filepath.Join(sourcePath, item.Name())
 		childTarget := filepath.Join(targetPath, item.Name())
-		if err := xdfileCopyPath(childSource, childTarget); err != nil {
+		if err := xdfileCopyPathContext(ctx, childSource, childTarget, progress); err != nil {
+			_ = os.RemoveAll(targetPath)
 			return err
 		}
 	}
 
-	return os.Chtimes(targetPath, info.ModTime(), info.ModTime())
+	if err := os.Chtimes(targetPath, info.ModTime(), info.ModTime()); err != nil {
+		_ = os.RemoveAll(targetPath)
+		return err
+	}
+	progress.addItem()
+	return nil
 }
 
 func xdfileCopyFile(sourcePath string, targetPath string, info os.FileInfo) error {
+	return xdfileCopyFileContext(context.Background(), sourcePath, targetPath, info, nil)
+}
+
+func xdfileCopyFileContext(
+	ctx context.Context,
+	sourcePath string,
+	targetPath string,
+	info os.FileInfo,
+	progress *xdfileFileOperationProgress,
+) error {
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return err
 	}
@@ -1278,16 +1337,60 @@ func xdfileCopyFile(sourcePath string, targetPath string, info os.FileInfo) erro
 	if err != nil {
 		return err
 	}
-	defer targetFile.Close()
 
-	if _, err := io.Copy(targetFile, sourceFile); err != nil {
+	cleanupTarget := true
+	defer func() {
+		_ = targetFile.Close()
+		if cleanupTarget {
+			_ = os.Remove(targetPath)
+		}
+	}()
+
+	buffer := make([]byte, 1024*1024)
+	for {
+		if err := xdfileCheckFileOperationContext(ctx); err != nil {
+			return err
+		}
+		n, readErr := sourceFile.Read(buffer)
+		if n > 0 {
+			if _, err := targetFile.Write(buffer[:n]); err != nil {
+				return err
+			}
+			progress.addBytes(n)
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+
+	if err := targetFile.Close(); err != nil {
 		return err
 	}
 
-	return os.Chtimes(targetPath, info.ModTime(), info.ModTime())
+	if err := os.Chtimes(targetPath, info.ModTime(), info.ModTime()); err != nil {
+		return err
+	}
+	cleanupTarget = false
+	progress.addItem()
+	return nil
 }
 
 func xdfileMovePath(sourcePath string, targetPath string) error {
+	return xdfileMovePathContext(context.Background(), sourcePath, targetPath, nil)
+}
+
+func xdfileMovePathContext(
+	ctx context.Context,
+	sourcePath string,
+	targetPath string,
+	progress *xdfileFileOperationProgress,
+) error {
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		return err
+	}
 	sourceClean := filepath.Clean(sourcePath)
 	targetClean := filepath.Clean(targetPath)
 
@@ -1308,10 +1411,16 @@ func xdfileMovePath(sourcePath string, targetPath string) error {
 		return err
 	}
 	if err := os.Rename(sourceClean, targetClean); err == nil {
+		progress.addItem()
 		return nil
 	}
 
-	if err := xdfileCopyPath(sourceClean, targetClean); err != nil {
+	if err := xdfileCopyPathContext(ctx, sourceClean, targetClean, progress); err != nil {
+		_ = os.RemoveAll(targetClean)
+		return err
+	}
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		_ = os.RemoveAll(targetClean)
 		return err
 	}
 	return os.RemoveAll(sourceClean)

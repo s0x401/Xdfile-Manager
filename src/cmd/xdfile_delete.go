@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,23 +32,23 @@ type xdfileDeleteUndoState struct {
 	Roots []string `json:"roots"`
 }
 
-func (m *xdfileModel) deletePathsWithUndo(paths []string) (int, error) {
-	batch, err := xdfileStageDeletePaths(paths)
-	if err != nil {
-		return 0, err
-	}
+func (m *xdfileModel) pushDeleteUndoBatch(batch xdfileDeleteUndoBatch) int {
 	if len(batch.Items) == 0 {
-		return 0, nil
+		return 0
 	}
 
 	m.deleteUndoStack = append(m.deleteUndoStack, batch)
 	if len(m.deleteUndoStack) > xdfileDeleteUndoStackMax {
+		dropped := m.deleteUndoStack[0]
 		copy(m.deleteUndoStack, m.deleteUndoStack[1:])
 		m.deleteUndoStack[len(m.deleteUndoStack)-1] = xdfileDeleteUndoBatch{}
 		m.deleteUndoStack = m.deleteUndoStack[:len(m.deleteUndoStack)-1]
+		if dropped.Root != "" {
+			_ = os.RemoveAll(dropped.Root)
+		}
 	}
 	m.syncDeleteUndoState()
-	return len(batch.Items), nil
+	return len(batch.Items)
 }
 
 func (m *xdfileModel) undoLastDelete() tea.Cmd {
@@ -75,6 +77,11 @@ func (m *xdfileModel) undoLastDelete() tea.Cmd {
 }
 
 func (m *xdfileModel) cleanupDeleteUndoStack() {
+	for _, batch := range m.deleteUndoStack {
+		if batch.Root != "" {
+			_ = os.RemoveAll(batch.Root)
+		}
+	}
 	m.deleteUndoStack = nil
 	m.syncDeleteUndoState()
 }
@@ -155,6 +162,12 @@ func xdfileCleanupDeleteUndoState(path string) (int, error) {
 		return 0, nil
 	}
 
+	for _, root := range roots {
+		if err := os.RemoveAll(root); err != nil && !os.IsNotExist(err) {
+			return len(roots), fmt.Errorf("cleanup stale delete undo root %s: %w", root, err)
+		}
+	}
+
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return len(roots), fmt.Errorf("clear delete undo state after cleanup: %w", err)
 	}
@@ -183,28 +196,30 @@ func (m *xdfileModel) syncDeleteUndoState() {
 	}
 }
 
-func xdfileStageDeletePaths(paths []string) (xdfileDeleteUndoBatch, error) {
-	paths = xdfileUniqueDeleteSourcePaths(paths)
-	if len(paths) == 0 {
-		return xdfileDeleteUndoBatch{}, nil
+func xdfileStageDeletePathsContext(
+	ctx context.Context,
+	paths []string,
+	progress *xdfileFileOperationProgress,
+) (xdfileDeleteUndoBatch, []xdfileFileOperationFailure, error) {
+	if err := xdfileCheckFileOperationContext(ctx); err != nil {
+		return xdfileDeleteUndoBatch{}, nil, err
 	}
 
-	for _, path := range paths {
-		if _, err := os.Lstat(path); err != nil {
-			return xdfileDeleteUndoBatch{}, err
-		}
+	paths = xdfileUniqueDeleteSourcePaths(paths)
+	if len(paths) == 0 {
+		return xdfileDeleteUndoBatch{}, nil, nil
 	}
 
 	stageParent, err := xdfileDeleteUndoStageParent(paths)
 	if err != nil {
-		return xdfileDeleteUndoBatch{}, err
+		return xdfileDeleteUndoBatch{}, nil, err
 	}
 	if err := os.MkdirAll(stageParent, 0o700); err != nil {
-		return xdfileDeleteUndoBatch{}, err
+		return xdfileDeleteUndoBatch{}, nil, err
 	}
 	stageRoot, err := os.MkdirTemp(stageParent, xdfileDeleteUndoDirPrefix)
 	if err != nil {
-		return xdfileDeleteUndoBatch{}, err
+		return xdfileDeleteUndoBatch{}, nil, err
 	}
 
 	batch := xdfileDeleteUndoBatch{
@@ -212,19 +227,45 @@ func xdfileStageDeletePaths(paths []string) (xdfileDeleteUndoBatch, error) {
 		Items: make([]xdfileDeleteUndoItem, 0, len(paths)),
 		At:    time.Now(),
 	}
+	failures := make([]xdfileFileOperationFailure, 0)
 	for i, sourcePath := range paths {
-		stagePath := filepath.Join(stageRoot, xdfileDeleteStageName(i, sourcePath))
-		if err := xdfileMovePath(sourcePath, stagePath); err != nil {
+		if err := xdfileCheckFileOperationContext(ctx); err != nil {
 			xdfileRollbackStagedDeletes(batch.Items)
 			_ = os.RemoveAll(stageRoot)
-			return xdfileDeleteUndoBatch{}, err
+			return xdfileDeleteUndoBatch{}, failures, err
+		}
+		if _, err := os.Lstat(sourcePath); err != nil {
+			failures = append(failures, xdfileFileOperationFailure{
+				SourcePath: sourcePath,
+				Err:        err,
+			})
+			continue
+		}
+
+		stagePath := filepath.Join(stageRoot, xdfileDeleteStageName(i, sourcePath))
+		if err := xdfileMovePathContext(ctx, sourcePath, stagePath, progress); err != nil {
+			if errors.Is(err, context.Canceled) {
+				xdfileRollbackStagedDeletes(batch.Items)
+				_ = os.RemoveAll(stageRoot)
+				return xdfileDeleteUndoBatch{}, failures, err
+			}
+			failures = append(failures, xdfileFileOperationFailure{
+				SourcePath: sourcePath,
+				TargetPath: stagePath,
+				Err:        err,
+			})
+			continue
 		}
 		batch.Items = append(batch.Items, xdfileDeleteUndoItem{
 			OriginalPath: sourcePath,
 			StagedPath:   stagePath,
 		})
 	}
-	return batch, nil
+	if len(batch.Items) == 0 {
+		_ = os.RemoveAll(stageRoot)
+		return xdfileDeleteUndoBatch{}, failures, nil
+	}
+	return batch, failures, nil
 }
 
 func xdfileDeleteUndoStageParent(paths []string) (string, error) {

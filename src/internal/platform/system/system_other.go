@@ -37,6 +37,10 @@ func showProperties(path string) error {
 	return fmt.Errorf("system properties dialog is only available on Windows")
 }
 
+func showContextMenu(_ []string) error {
+	return fmt.Errorf("native Windows context menu is only available on Windows")
+}
+
 func configureManagedExternalCommand(cmd *exec.Cmd) {
 }
 

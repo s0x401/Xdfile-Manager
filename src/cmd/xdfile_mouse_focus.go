@@ -10,6 +10,13 @@ import (
 
 const xdfileNoHoverIndex = -1
 
+type xdfilePanelMouseHit struct {
+	Panel      int
+	Rows       int
+	EntryIndex int
+	OnEntry    bool
+}
+
 func xdfileNoHoverState() xdfileHoverState {
 	return xdfileHoverState{
 		MenuItem:   xdfileNoHoverIndex,
@@ -100,10 +107,43 @@ func (m *xdfileModel) panelEntryIndexAt(panelIndex int, rect xdfileRect, y int) 
 	return index, true
 }
 
+func (m *xdfileModel) panelMouseHitAt(x int, y int) (xdfilePanelMouseHit, bool) {
+	for i, rect := range m.layout.panelRects {
+		if m.quickViewActive() && i == m.quickViewPanelIndex() {
+			continue
+		}
+		if !rect.contains(x, y) {
+			continue
+		}
+		rows := m.panels[i].visibleRows(rect.h)
+		row := y - (rect.y + 3)
+		hit := xdfilePanelMouseHit{
+			Panel:      i,
+			Rows:       rows,
+			EntryIndex: -1,
+		}
+		if row >= 0 && row < rows {
+			index := m.panels[i].Scroll + row
+			if index >= 0 && index < len(m.panels[i].Entries) {
+				hit.EntryIndex = index
+				hit.OnEntry = true
+			}
+		}
+		return hit, true
+	}
+	return xdfilePanelMouseHit{}, false
+}
+
 func (m *xdfileModel) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	m.updateMouseHover(msg)
 	if msg.Action == tea.MouseActionPress && m.panelSearch.Active {
 		m.closePanelSearch()
+	}
+
+	if m.panelMouse.Active {
+		if cmd, handled := m.handlePanelMouseContinuation(msg); handled {
+			return cmd
+		}
 	}
 
 	if quickViewIndex := m.quickViewPanelIndex(); quickViewIndex >= 0 && m.layout.panelRects[quickViewIndex].contains(msg.X, msg.Y) {
@@ -215,11 +255,10 @@ func (m *xdfileModel) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			if rect.contains(msg.X, msg.Y) {
 				rows := m.panels[i].visibleRows(rect.h)
 				if msg.Button == tea.MouseButtonWheelUp {
-					m.panels[i].move(-1, rows)
+					m.panels[i].scroll(-3, rows)
 				} else {
-					m.panels[i].move(1, rows)
+					m.panels[i].scroll(3, rows)
 				}
-				m.syncQuickViewViewport()
 				m.updateMouseHover(msg)
 				return nil
 			}
@@ -247,40 +286,126 @@ func (m *xdfileModel) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 
-	for i, rect := range m.layout.panelRects {
-		if m.quickViewActive() && i == m.quickViewPanelIndex() {
-			continue
-		}
-		if !rect.contains(msg.X, msg.Y) {
-			continue
-		}
-		_ = m.focusPanel(i)
-		rows := m.panels[i].visibleRows(rect.h)
-		row := msg.Y - (rect.y + 3)
-		if row < 0 {
-			return m.handlePanelBlankClick(i, 0, rows)
-		}
-		if row >= rows {
-			return m.handlePanelBlankClick(i, len(m.panels[i].Entries)-1, rows)
-		}
-		index, ok := m.panelEntryIndexAt(i, rect, msg.Y)
-		if !ok {
-			return m.handlePanelBlankClick(i, len(m.panels[i].Entries)-1, rows)
-		}
-		m.panels[i].clearMarked()
-		m.panels[i].setCursor(index, rows)
-		m.syncQuickViewViewport()
-
-		now := time.Now()
-		if m.lastClick.panel == i && m.lastClick.row == index && now.Sub(m.lastClick.at) < 450*time.Millisecond {
-			m.lastClick = xdfileClickState{panel: -1, row: -1}
-			return m.activateSelection()
-		}
-		m.lastClick = xdfileClickState{panel: i, row: index, at: now}
-		return nil
+	if hit, ok := m.panelMouseHitAt(msg.X, msg.Y); ok {
+		return m.handlePanelMousePress(msg, hit)
 	}
 
 	return nil
+}
+
+func (m *xdfileModel) handlePanelMousePress(msg tea.MouseMsg, hit xdfilePanelMouseHit) tea.Cmd {
+	focusCmd := m.focusPanel(hit.Panel)
+	panel := &m.panels[hit.Panel]
+
+	if !hit.OnEntry {
+		panel.clearMarked()
+		m.panelMouse = xdfilePanelMouseState{}
+		m.lastClick = xdfileClickState{panel: -1, row: -1}
+		m.syncQuickViewViewport()
+		return focusCmd
+	}
+
+	baseMarked := panel.cloneMarkedPaths()
+	anchor := hit.EntryIndex
+	rangeSelect := msg.Shift || msg.Alt
+	if rangeSelect {
+		anchor = panel.rangeSelectionAnchor()
+	}
+	m.applyPanelMouseSelection(hit.Panel, anchor, hit.EntryIndex, hit.Rows, msg.Ctrl, rangeSelect, baseMarked)
+	m.panelMouse = xdfilePanelMouseState{
+		Active:     true,
+		Panel:      hit.Panel,
+		StartIndex: anchor,
+		LastIndex:  hit.EntryIndex,
+		Ctrl:       msg.Ctrl,
+		BaseMarked: baseMarked,
+	}
+
+	now := time.Now()
+	if !msg.Ctrl && !msg.Shift && m.lastClick.panel == hit.Panel && m.lastClick.row == hit.EntryIndex && now.Sub(m.lastClick.at) < 450*time.Millisecond {
+		m.panelMouse = xdfilePanelMouseState{}
+		m.lastClick = xdfileClickState{panel: -1, row: -1}
+		return tea.Batch(focusCmd, m.activateSelection())
+	}
+	m.lastClick = xdfileClickState{panel: hit.Panel, row: hit.EntryIndex, at: now}
+	return focusCmd
+}
+
+func (m *xdfileModel) handlePanelMouseContinuation(msg tea.MouseMsg) (tea.Cmd, bool) {
+	if msg.Action == tea.MouseActionRelease {
+		if m.panelMouse.Dragging {
+			m.lastClick = xdfileClickState{panel: -1, row: -1}
+		}
+		m.panelMouse = xdfilePanelMouseState{}
+		return nil, true
+	}
+	if msg.Action != tea.MouseActionMotion {
+		return nil, false
+	}
+
+	state := m.panelMouse
+	index, rows, ok := m.panelMouseDragIndexAt(state.Panel, msg.X, msg.Y)
+	if !ok {
+		return nil, true
+	}
+	if index == state.LastIndex {
+		return nil, true
+	}
+
+	state.LastIndex = index
+	state.Dragging = true
+	m.panelMouse = state
+	m.applyPanelMouseDragSelection(state.Panel, state.StartIndex, index, rows, state.Ctrl, state.BaseMarked)
+	return nil, true
+}
+
+func (m *xdfileModel) panelMouseDragIndexAt(panelIndex int, x int, y int) (int, int, bool) {
+	if panelIndex < 0 || panelIndex >= len(m.panels) {
+		return 0, 0, false
+	}
+	rect := m.layout.panelRects[panelIndex]
+	if !rect.contains(x, y) || len(m.panels[panelIndex].Entries) == 0 {
+		return 0, 0, false
+	}
+
+	rows := m.panels[panelIndex].visibleRows(rect.h)
+	row := y - (rect.y + 3)
+	index := m.panels[panelIndex].Scroll + row
+	if row < 0 {
+		index = m.panels[panelIndex].Scroll
+	}
+	if row >= rows {
+		index = m.panels[panelIndex].Scroll + rows - 1
+	}
+	index = max(0, min(index, len(m.panels[panelIndex].Entries)-1))
+	return index, rows, true
+}
+
+func (m *xdfileModel) applyPanelMouseSelection(panelIndex int, anchor int, target int, rows int, ctrl bool, shift bool, baseMarked map[string]struct{}) {
+	panel := &m.panels[panelIndex]
+	switch {
+	case ctrl && shift:
+		panel.selectRangeWithBase(anchor, target, rows, baseMarked)
+	case shift:
+		panel.selectRange(anchor, target, rows)
+	case ctrl:
+		panel.setCursor(target, rows)
+		panel.toggleMarkedAt(target)
+	default:
+		panel.clearMarked()
+		panel.setCursor(target, rows)
+	}
+	m.syncQuickViewViewport()
+}
+
+func (m *xdfileModel) applyPanelMouseDragSelection(panelIndex int, anchor int, target int, rows int, ctrl bool, baseMarked map[string]struct{}) {
+	panel := &m.panels[panelIndex]
+	if ctrl {
+		panel.selectRangeWithBase(anchor, target, rows, baseMarked)
+	} else {
+		panel.selectRange(anchor, target, rows)
+	}
+	m.syncQuickViewViewport()
 }
 
 func (m *xdfileModel) handleManagedTerminalMousePress(msg tea.MouseMsg) (tea.Cmd, bool) {
@@ -392,26 +517,6 @@ func xdfileRuneWidth(value []rune) int {
 		width += max(1, rw.RuneWidth(r))
 	}
 	return width
-}
-
-func (m *xdfileModel) handlePanelBlankClick(panelIndex int, targetIndex int, rows int) tea.Cmd {
-	if panelIndex < 0 || panelIndex >= len(m.panels) || len(m.panels[panelIndex].Entries) == 0 {
-		m.lastClick = xdfileClickState{panel: -1, row: -1}
-		return nil
-	}
-
-	targetIndex = max(0, min(targetIndex, len(m.panels[panelIndex].Entries)-1))
-	m.panels[panelIndex].clearMarked()
-	m.panels[panelIndex].setCursor(targetIndex, rows)
-	m.syncQuickViewViewport()
-
-	now := time.Now()
-	if m.lastClick.panel == panelIndex && m.lastClick.row == targetIndex && now.Sub(m.lastClick.at) < 450*time.Millisecond {
-		m.lastClick = xdfileClickState{panel: -1, row: -1}
-		return m.activateSelection()
-	}
-	m.lastClick = xdfileClickState{panel: panelIndex, row: targetIndex, at: now}
-	return nil
 }
 
 func (m *xdfileModel) focusPanel(index int) tea.Cmd {

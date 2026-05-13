@@ -12,6 +12,14 @@ const xdfileTerminalLineLimit = 1200
 
 func (m *xdfileModel) applyModal() tea.Cmd {
 	switch m.modal.Action {
+	case xdfileActionModalRename, xdfileActionModalMkdir, xdfileActionCopy, xdfileActionMove, xdfileActionDelete:
+		if m.backgroundTaskBusy && !m.fileOperationActive() {
+			m.setStatus("Wait for the current background task to finish")
+			return nil
+		}
+	}
+
+	switch m.modal.Action {
 	case xdfileActionModalRename:
 		panelIndex := m.modal.PanelIndex
 		if !m.validPanelIndex(panelIndex) {
@@ -28,16 +36,14 @@ func (m *xdfileModel) applyModal() tea.Cmd {
 			return nil
 		}
 		dst := xdfileJoinPath(xdfileParentPath(m.modal.SourcePath), newName)
-		if err := xdfileRenamePath(m.modal.SourcePath, dst); err != nil {
-			m.setStatusErr(err)
-			return nil
-		}
+		sourcePath := m.modal.SourcePath
 		m.closeModal()
-		if err := m.reloadPanel(panelIndex); err != nil {
-			m.setStatusErr(err)
-		} else {
-			m.setStatus("Renamed to %s", newName)
-		}
+		return m.startFileOperation(xdfileFileOperation{
+			Kind:       xdfileFileOperationRename,
+			SourcePath: sourcePath,
+			TargetPath: dst,
+			PanelIndex: panelIndex,
+		})
 	case xdfileActionModalMkdir:
 		panelIndex := m.modal.PanelIndex
 		if !m.validPanelIndex(panelIndex) {
@@ -50,16 +56,12 @@ func (m *xdfileModel) applyModal() tea.Cmd {
 			return nil
 		}
 		dst := xdfileJoinPath(m.panels[panelIndex].Cwd, name)
-		if err := xdfileMkdirPath(dst); err != nil {
-			m.setStatusErr(err)
-			return nil
-		}
 		m.closeModal()
-		if err := m.reloadPanel(panelIndex); err != nil {
-			m.setStatusErr(err)
-		} else {
-			m.setStatus("Created %s", dst)
-		}
+		return m.startFileOperation(xdfileFileOperation{
+			Kind:       xdfileFileOperationMkdir,
+			TargetPath: dst,
+			PanelIndex: panelIndex,
+		})
 	case xdfileActionInsertCommand:
 		if len(m.modal.FormFields) < 3 {
 			m.setStatus("Command form is incomplete")
@@ -137,51 +139,53 @@ func (m *xdfileModel) applyModal() tea.Cmd {
 	case xdfileActionNetBoxDelete:
 		return m.deleteNetBoxConnectionFromModal()
 	case xdfileActionCopy:
+		sourcePaths := append([]string(nil), m.modal.SourcePaths...)
+		sourcePath := m.modal.SourcePath
 		targetPath := m.modal.TargetPath
-		target, err := xdfileUniqueCopyTarget(m.modal.TargetPath)
-		if err != nil {
-			m.setStatusErr(err)
-			return nil
+		if len(sourcePaths) <= 1 {
+			target, err := xdfileUniqueCopyTarget(m.modal.TargetPath)
+			if err != nil {
+				m.setStatusErr(err)
+				return nil
+			}
+			targetPath = target
 		}
-		if err := xdfileCopyPath(m.modal.SourcePath, target); err != nil {
-			m.setStatusErr(err)
-			return nil
-		}
+		panelIndex := m.modal.PanelIndex
 		m.closeModal()
-		m.reloadAllPanels()
-		if targetPath != "" {
-			m.setStatus("Copied to %s", target)
-		}
+		return m.startFileOperation(xdfileFileOperation{
+			Kind:        xdfileFileOperationCopy,
+			SourcePath:  sourcePath,
+			SourcePaths: sourcePaths,
+			TargetPath:  targetPath,
+			PanelIndex:  panelIndex,
+		})
 	case xdfileActionMove:
 		targetPath := m.modal.TargetPath
-		if err := xdfileMovePath(m.modal.SourcePath, targetPath); err != nil {
-			m.setStatusErr(err)
-			return nil
-		}
+		sourcePath := m.modal.SourcePath
+		sourcePaths := append([]string(nil), m.modal.SourcePaths...)
+		panelIndex := m.modal.PanelIndex
 		m.closeModal()
-		m.reloadAllPanels()
-		m.setStatus("Moved to %s", targetPath)
+		return m.startFileOperation(xdfileFileOperation{
+			Kind:        xdfileFileOperationMove,
+			SourcePath:  sourcePath,
+			SourcePaths: sourcePaths,
+			TargetPath:  targetPath,
+			PanelIndex:  panelIndex,
+		})
 	case xdfileActionDelete:
 		sourcePaths := append([]string(nil), m.modal.SourcePaths...)
 		if len(sourcePaths) == 0 && m.modal.SourcePath != "" {
 			sourcePaths = []string{m.modal.SourcePath}
 		}
-		count, err := m.deletePathsWithUndo(sourcePaths)
-		if err != nil {
-			m.setStatusErr(err)
-			return nil
-		}
-		if count == 0 {
-			m.setStatus("Select a file or directory to delete")
-			return nil
-		}
-		deletedLabel := sourcePaths[0]
-		if count > 1 {
-			deletedLabel = fmt.Sprintf("%d items", count)
-		}
+		sourcePath := m.modal.SourcePath
+		panelIndex := m.modal.PanelIndex
 		m.closeModal()
-		m.reloadAllPanels()
-		m.setStatus("Deleted %s (Ctrl+Z to undo)", deletedLabel)
+		return m.startFileOperation(xdfileFileOperation{
+			Kind:        xdfileFileOperationDelete,
+			SourcePath:  sourcePath,
+			SourcePaths: sourcePaths,
+			PanelIndex:  panelIndex,
+		})
 	case xdfileActionQuit:
 		m.closeXdfileResources()
 		return tea.Quit
