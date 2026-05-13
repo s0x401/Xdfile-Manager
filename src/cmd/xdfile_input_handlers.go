@@ -78,8 +78,6 @@ func (m *xdfileModel) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return m.adjustTerminalHeight(1), true
 		case "ctrl+down":
 			return m.adjustTerminalHeight(-1), true
-		case "shift+f9":
-			return m.executeAction(xdfileActionSaveLayout), true
 		case "f2":
 			if m.terminal.Emulator != nil && m.terminal.Emulator.IsAltScreen() {
 				return nil, false
@@ -102,8 +100,6 @@ func (m *xdfileModel) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.adjustTerminalHeight(1), true
 	case "ctrl+down":
 		return m.adjustTerminalHeight(-1), true
-	case "shift+f9":
-		return m.executeAction(xdfileActionSaveLayout), true
 	case "f1":
 		m.openTextModal("Xdfile Manager Help", xdfileHelpText())
 		return nil, true

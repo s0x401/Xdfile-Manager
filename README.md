@@ -285,7 +285,6 @@ NetBox -> New SSH connection
 
 | 操作 | 功能 |
 |---|---|
-| `Shift+F9` | 保存设置 |
 | `Options -> Save setup` | 保存设置 |
 | `Options -> Reset setup` | 重置布局、主题、视图选项和用户菜单 |
 

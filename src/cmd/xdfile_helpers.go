@@ -293,7 +293,7 @@ func (m *xdfileModel) menuDefinitions() []xdfileMenu {
 			Action: xdfileActionOptionsMenu,
 			Label:  "Options",
 			Items: []xdfileButton{
-				{Action: xdfileActionSaveLayout, Key: "Shift+F9", Label: "Save setup"},
+				{Action: xdfileActionSaveLayout, Label: "Save setup"},
 				{Action: xdfileActionResetLayout, Label: "Reset setup"},
 				{Action: xdfileActionQuickViewMode, Label: xdfileQuickViewModeLabel(m.layoutPrefs.QuickViewDocked)},
 			},
@@ -721,7 +721,7 @@ func xdfileHelpText() string {
 		"Ctrl+Left/Right move the vertical split between both panels",
 		"Ctrl+Up/Down    resize the bottom terminal against the file panels",
 		"Top menus        Panels / View / Terminal / Theme / Options live on the top-left",
-		"Shift+F9        save setup (Options -> Save setup)",
+		"Options          Save setup stores the current layout and preferences",
 		"Options          Reset setup restores layout, theme, view options, hidden files, and the user menu defaults",
 		"Enter            open directory or launch file",
 		"Ctrl+Shift+C / Ctrl+X / Ctrl+Shift+V copy, cut, and paste the selected item when a file panel has focus",
