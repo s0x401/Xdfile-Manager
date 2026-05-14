@@ -556,17 +556,6 @@ func xdfilePluralSuffix(count int) string {
 	return "s"
 }
 
-func xdfilePathExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
 func (pending *xdfilePendingClipboardPaste) remoteDestination() bool {
 	return pending != nil && xdfileIsNetBoxPath(pending.DestinationDir)
 }

@@ -12,6 +12,8 @@ type xdfileEntry struct {
 	GitMarker string
 	sortName  string
 	sortExt   string
+	sizeText  string
+	timeText  string
 }
 
 type xdfilePanel struct {
@@ -30,6 +32,26 @@ func (p *xdfilePanel) selected() (xdfileEntry, bool) {
 		return xdfileEntry{}, false
 	}
 	return p.Entries[p.Cursor], true
+}
+
+func (entry xdfileEntry) displaySize() string {
+	if entry.IsDir || entry.IsParent {
+		return ""
+	}
+	if entry.sizeText != "" {
+		return entry.sizeText
+	}
+	return xdfileHumanSize(entry.Size)
+}
+
+func (entry xdfileEntry) displayTime() string {
+	if entry.IsParent {
+		return ""
+	}
+	if entry.timeText != "" {
+		return entry.timeText
+	}
+	return entry.Modified.Format("01-02 15:04")
 }
 
 func (p *xdfilePanel) clearMarked() {

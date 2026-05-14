@@ -132,14 +132,16 @@ type xdfileModal struct {
 }
 
 type xdfileQuickView struct {
-	Open        bool
-	Path        string
-	Title       string
-	Description string
-	Text        string
-	Binary      bool
-	Visual      bool
-	Viewport    viewport.Model
-	ContentW    int
-	ContentH    int
+	Open         bool
+	Path         string
+	Title        string
+	Description  string
+	Text         string
+	Binary       bool
+	Visual       bool
+	Viewport     viewport.Model
+	ContentW     int
+	ContentH     int
+	ViewportW    int
+	ViewportText string
 }

@@ -608,10 +608,6 @@ func xdfileEntryKindSpecForEntry(entry xdfileEntry) xdfileEntryKindSpec {
 	}
 }
 
-func xdfileEntryKindLabel(entry xdfileEntry) string {
-	return xdfileEntryKindSpecForEntry(entry).Label
-}
-
 func xdfileEntrySummary(entry xdfileEntry) string {
 	if entry.IsParent {
 		return "parent directory"

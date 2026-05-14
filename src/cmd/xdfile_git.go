@@ -64,13 +64,17 @@ func xdfileReadGitStatus(dir string) xdfileGitPanelInfo {
 	if strings.TrimSpace(dir) == "" {
 		return xdfileGitPanelInfo{}
 	}
-	gitPath := xdfileGitExecutablePath()
-	if gitPath == "" {
-		return xdfileGitPanelInfo{}
-	}
 	dir = filepath.Clean(dir)
 	if cached, ok := xdfileCachedGitStatus(dir); ok {
 		return cached
+	}
+	if !xdfileDirHasGitMarker(dir) {
+		xdfileStoreGitStatus(dir, xdfileGitPanelInfo{})
+		return xdfileGitPanelInfo{}
+	}
+	gitPath := xdfileGitExecutablePath()
+	if gitPath == "" {
+		return xdfileGitPanelInfo{}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), xdfileGitStatusTimeout)
@@ -97,6 +101,19 @@ func xdfileReadGitStatus(dir string) xdfileGitPanelInfo {
 	info := xdfileParseGitStatusOutput(string(output))
 	xdfileStoreGitStatus(dir, info)
 	return info
+}
+
+func xdfileDirHasGitMarker(dir string) bool {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 func xdfileGitExecutablePath() string {

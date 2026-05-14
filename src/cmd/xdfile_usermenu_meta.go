@@ -122,19 +122,6 @@ func (m *xdfileModel) prepareManagedTerminalCommand(command string) (xdfileComma
 	}, nil
 }
 
-func (m *xdfileModel) expandCommandMenuCommand(command string) (string, error) {
-	expansion, err := m.prepareCommandMenuCommand(command)
-	if err != nil {
-		return "", err
-	}
-	if len(expansion.Prompts) > 0 {
-		m.cleanupCommandMenuTempFiles(expansion.TempFiles)
-		return "", fmt.Errorf("command requires input prompts")
-	}
-	m.registerCommandMenuTempFiles(expansion.TempFiles)
-	return expansion.Command, nil
-}
-
 func (m *xdfileModel) openCommandMenuPromptForm(label string, expansion xdfileCommandMenuExpansion) tea.Cmd {
 	if len(expansion.Prompts) == 0 {
 		m.registerCommandMenuTempFiles(expansion.TempFiles)

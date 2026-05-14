@@ -10,11 +10,19 @@ import (
 
 const xdfileNoHoverIndex = -1
 
+type xdfilePanelMouseBlank int
+
+const (
+	xdfilePanelMouseBlankBottom xdfilePanelMouseBlank = iota
+	xdfilePanelMouseBlankTop
+)
+
 type xdfilePanelMouseHit struct {
 	Panel      int
 	Rows       int
 	EntryIndex int
 	OnEntry    bool
+	Blank      xdfilePanelMouseBlank
 }
 
 func xdfileNoHoverState() xdfileHoverState {
@@ -115,18 +123,26 @@ func (m *xdfileModel) panelMouseHitAt(x int, y int) (xdfilePanelMouseHit, bool) 
 		if !rect.contains(x, y) {
 			continue
 		}
-		rows := m.panels[i].visibleRows(rect.h)
+		panel := &m.panels[i]
+		rows := panel.visibleRows(rect.h)
 		row := y - (rect.y + 3)
 		hit := xdfilePanelMouseHit{
 			Panel:      i,
 			Rows:       rows,
 			EntryIndex: -1,
 		}
-		if row >= 0 && row < rows {
-			index := m.panels[i].Scroll + row
+		switch {
+		case row < 0:
+			hit.Blank = xdfilePanelMouseBlankTop
+		case row >= rows:
+			hit.Blank = xdfilePanelMouseBlankBottom
+		default:
+			index := panel.Scroll + row
 			if index >= 0 && index < len(m.panels[i].Entries) {
 				hit.EntryIndex = index
 				hit.OnEntry = true
+			} else {
+				hit.Blank = xdfilePanelMouseBlankBottom
 			}
 		}
 		return hit, true
@@ -298,11 +314,7 @@ func (m *xdfileModel) handlePanelMousePress(msg tea.MouseMsg, hit xdfilePanelMou
 	panel := &m.panels[hit.Panel]
 
 	if !hit.OnEntry {
-		panel.clearMarked()
-		m.panelMouse = xdfilePanelMouseState{}
-		m.lastClick = xdfileClickState{panel: -1, row: -1}
-		m.syncQuickViewViewport()
-		return focusCmd
+		return m.handlePanelBlankMousePress(msg, hit, focusCmd)
 	}
 
 	baseMarked := panel.cloneMarkedPaths()
@@ -321,14 +333,50 @@ func (m *xdfileModel) handlePanelMousePress(msg tea.MouseMsg, hit xdfilePanelMou
 		BaseMarked: baseMarked,
 	}
 
+	if cmd, activated := m.finishPanelMouseClick(msg, hit.Panel, hit.EntryIndex, focusCmd); activated {
+		return cmd
+	}
+	return focusCmd
+}
+
+func (m *xdfileModel) handlePanelBlankMousePress(msg tea.MouseMsg, hit xdfilePanelMouseHit, focusCmd tea.Cmd) tea.Cmd {
+	panel := &m.panels[hit.Panel]
+	m.panelMouse = xdfilePanelMouseState{}
+
+	if len(panel.Entries) == 0 {
+		panel.clearMarked()
+		m.lastClick = xdfileClickState{panel: -1, row: -1}
+		m.syncQuickViewViewport()
+		return focusCmd
+	}
+
+	target := panel.lastSelectableIndex()
+	if hit.Blank == xdfilePanelMouseBlankTop {
+		target = 0
+	}
+
+	baseMarked := panel.cloneMarkedPaths()
+	anchor := target
+	rangeSelect := msg.Shift || msg.Alt
+	if rangeSelect {
+		anchor = panel.rangeSelectionAnchor()
+	}
+	m.applyPanelMouseSelection(hit.Panel, anchor, target, hit.Rows, msg.Ctrl, rangeSelect, baseMarked)
+	if cmd, activated := m.finishPanelMouseClick(msg, hit.Panel, target, focusCmd); activated {
+		return cmd
+	}
+	return focusCmd
+}
+
+func (m *xdfileModel) finishPanelMouseClick(msg tea.MouseMsg, panelIndex int, entryIndex int, focusCmd tea.Cmd) (tea.Cmd, bool) {
 	now := time.Now()
-	if !msg.Ctrl && !msg.Shift && m.lastClick.panel == hit.Panel && m.lastClick.row == hit.EntryIndex && now.Sub(m.lastClick.at) < 450*time.Millisecond {
+	if !msg.Ctrl && !msg.Shift && m.lastClick.panel == panelIndex && m.lastClick.row == entryIndex && now.Sub(m.lastClick.at) < 450*time.Millisecond {
 		m.panelMouse = xdfilePanelMouseState{}
 		m.lastClick = xdfileClickState{panel: -1, row: -1}
-		return tea.Batch(focusCmd, m.activateSelection())
+		return tea.Batch(focusCmd, m.activateSelection()), true
 	}
-	m.lastClick = xdfileClickState{panel: hit.Panel, row: hit.EntryIndex, at: now}
-	return focusCmd
+	m.lastClick = xdfileClickState{panel: panelIndex, row: entryIndex, at: now}
+	return nil, false
 }
 
 func (m *xdfileModel) handlePanelMouseContinuation(msg tea.MouseMsg) (tea.Cmd, bool) {

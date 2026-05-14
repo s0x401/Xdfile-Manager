@@ -244,10 +244,6 @@ func xdfileClipboardTextPaths(text string) []string {
 	return paths
 }
 
-func (m *xdfileModel) canCopySelection() bool {
-	return len(m.activeFileSelectionEntries()) > 0
-}
-
 func (m *xdfileModel) activeFileSelectionEntries() []xdfileEntry {
 	panel := &m.panels[m.activePanel]
 	if marked := panel.markedEntries(); len(marked) > 0 {

@@ -151,8 +151,12 @@ func xdfileReadEntries(dir string, showHidden bool, sortMode xdfileSortMode) ([]
 		isDir := item.IsDir()
 		sortName := strings.ToLower(name)
 		sortExt := ""
+		sizeText := ""
 		if !isDir && sortMode == xdfileSortModeExt {
 			sortExt = xdfileSortExtension(name)
+		}
+		if !isDir {
+			sizeText = xdfileHumanSize(itemInfo.Size())
 		}
 
 		buffer = append(buffer, xdfileEntry{
@@ -163,6 +167,8 @@ func xdfileReadEntries(dir string, showHidden bool, sortMode xdfileSortMode) ([]
 			Modified: itemInfo.ModTime(),
 			sortName: sortName,
 			sortExt:  sortExt,
+			sizeText: sizeText,
+			timeText: itemInfo.ModTime().Format("01-02 15:04"),
 		})
 	}
 
@@ -1264,10 +1270,6 @@ func xdfileCopyPathContext(
 	return xdfileCopyFileContext(ctx, sourcePath, targetPath, info, progress)
 }
 
-func xdfileCopyDir(sourcePath string, targetPath string, info os.FileInfo) error {
-	return xdfileCopyDirContext(context.Background(), sourcePath, targetPath, info, nil)
-}
-
 func xdfileCopyDirContext(
 	ctx context.Context,
 	sourcePath string,
@@ -1307,10 +1309,6 @@ func xdfileCopyDirContext(
 	}
 	progress.addItem()
 	return nil
-}
-
-func xdfileCopyFile(sourcePath string, targetPath string, info os.FileInfo) error {
-	return xdfileCopyFileContext(context.Background(), sourcePath, targetPath, info, nil)
 }
 
 func xdfileCopyFileContext(
@@ -1485,76 +1483,6 @@ func xdfileWaitTerminalMsg(events <-chan tea.Msg) tea.Cmd {
 		}
 		return msg
 	}
-}
-
-func xdfileRunCommand(dir string, command string) xdfileTerminalResultMsg {
-	command = strings.TrimSpace(command)
-	result := xdfileTerminalResultMsg{
-		Command: command,
-		Dir:     dir,
-	}
-	if command == "" {
-		return result
-	}
-
-	if xdfileIsNetBoxPath(dir) {
-		return xdfileRunNetBoxTerminalCommand(dir, command)
-	}
-
-	if managed, handled := xdfileRunManagedShellCommand(dir, command); handled {
-		return managed
-	}
-
-	switch strings.ToLower(command) {
-	case "clear", "cls":
-		result.Clear = true
-		return result
-	case "pwd":
-		result.Output = dir
-		return result
-	}
-
-	if nextDir, handled, err := xdfileBuiltinCD(dir, command); handled {
-		result.Dir = nextDir
-		result.Err = err
-		result.SyncActivePanel = err == nil
-		if err == nil {
-			result.Output = nextDir
-		}
-		return result
-	}
-
-	if detached, handled := xdfileStartDetachedExternalCommand(dir, command); handled {
-		return detached
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	command = xdfilePrepareExternalCommand(command)
-	shell, args, cleanup, err := xdfileExternalCommandInvocation(dir, command)
-	if err != nil {
-		result.Err = fmt.Errorf("prepare command: %w", err)
-		return result
-	}
-	defer cleanup()
-
-	cmd := exec.CommandContext(ctx, shell, args...)
-	cmd.Dir = dir
-	cmd.Env = xdfileCommandExecutionEnvironment(os.Environ())
-	xdfileConfigureManagedExternalCommand(cmd)
-	outputBytes, err := cmd.CombinedOutput()
-	result.Output = strings.TrimRight(
-		xdfileSanitizeManagedTerminalText(
-			strings.ReplaceAll(xdfileDecodeCommandOutput(outputBytes), "\r\n", "\n"),
-		),
-		"\n",
-	)
-
-	if err != nil {
-		result.Err = xdfileNormalizeCommandError(err)
-	}
-	return result
 }
 
 func xdfileStartStreamingCommand(dir string, command string, events chan tea.Msg, width int, height int) (func(), *vt.SafeEmulator, error) {

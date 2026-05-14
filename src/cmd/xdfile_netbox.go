@@ -175,10 +175,6 @@ func xdfileSetNetBoxConnectionsCache(connections []xdfileNetBoxConnection) {
 	xdfileNetBoxConnectionsCache = xdfileNormalizeNetBoxConnections(connections)
 }
 
-func xdfileNetBoxConnectionsSnapshot() []xdfileNetBoxConnection {
-	return append([]xdfileNetBoxConnection(nil), xdfileNetBoxConnectionsCache...)
-}
-
 func xdfileFindNetBoxConnectionIn(connections []xdfileNetBoxConnection, name string) (xdfileNetBoxConnection, bool) {
 	name = strings.TrimSpace(name)
 	for _, connection := range connections {
@@ -681,6 +677,10 @@ func xdfileNetBoxParseListLine(profile string, line string) (xdfileEntry, bool) 
 		modified = time.Time{}
 	}
 	isDir := strings.TrimSpace(parts[0]) == "d"
+	sizeText := ""
+	if !isDir {
+		sizeText = xdfileHumanSize(size)
+	}
 	return xdfileEntry{
 		Name:     name,
 		Path:     xdfileNetBoxURL(profile, remotePath),
@@ -689,6 +689,8 @@ func xdfileNetBoxParseListLine(profile string, line string) (xdfileEntry, bool) 
 		Modified: modified,
 		sortName: strings.ToLower(name),
 		sortExt:  xdfileSortExtension(name),
+		sizeText: sizeText,
+		timeText: modified.Format("01-02 15:04"),
 	}, true
 }
 
@@ -763,48 +765,6 @@ func xdfileNetBoxPathConnection(value string) (xdfileNetBoxPath, xdfileNetBoxCon
 		return xdfileNetBoxPath{}, xdfileNetBoxConnection{}, fmt.Errorf("SSH connection %q is not configured", remote.Profile)
 	}
 	return remote, connection, nil
-}
-
-func xdfileRunNetBoxTerminalCommand(dir string, command string) xdfileTerminalResultMsg {
-	command = strings.TrimSpace(command)
-	result := xdfileTerminalResultMsg{
-		Command: command,
-		Dir:     dir,
-	}
-	if command == "" {
-		return result
-	}
-
-	if nextDir, handled, err := xdfileBuiltinRemoteCD(dir, command); handled {
-		result.Dir = nextDir
-		result.Err = err
-		result.SyncActivePanel = err == nil
-		if err == nil {
-			result.Output = xdfileTerminalPromptPathStyle.Render(xdfileNetBoxPathLabel(nextDir))
-		}
-		return result
-	}
-
-	remote, connection, err := xdfileNetBoxPathConnection(dir)
-	if err != nil {
-		result.Err = err
-		return result
-	}
-
-	remoteCommand := xdfileNormalizeNetBoxTerminalCommand(command, remote.Path)
-	output, err := xdfileNetBoxRunScriptFunc(
-		connection,
-		"cd -- "+xdfilePOSIXShellQuote(remote.Path)+"\n"+remoteCommand,
-	)
-	text := strings.TrimRight(
-		xdfileSanitizeManagedTerminalText(
-			strings.ReplaceAll(xdfileDecodeCommandOutput(output), "\r\n", "\n"),
-		),
-		"\n",
-	)
-	result.Output = text
-	result.Err = err
-	return result
 }
 
 func xdfileRunNetBoxManagedTerminalCommand(dir string, command string) (xdfileTerminalResultMsg, bool) {
@@ -1172,17 +1132,6 @@ func xdfilePOSIXShellQuote(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func xdfilePathIsRemote(value string) bool {
-	return xdfileIsNetBoxPath(value)
-}
-
-func xdfileDisplayPath(value string) string {
-	if xdfileIsNetBoxPath(value) {
-		return xdfileNetBoxPathLabel(value)
-	}
-	return value
 }
 
 func xdfileParentPath(value string) string {

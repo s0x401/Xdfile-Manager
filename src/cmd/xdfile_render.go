@@ -209,8 +209,8 @@ func (m *xdfileModel) renderFooter() string {
 
 func (m *xdfileModel) renderFooterSelection() string {
 	sep := xdfileFooterSeparator()
-	if marked := m.panels[m.activePanel].markedEntries(); len(marked) > 0 {
-		return xdfileTagStyle.Render(fmt.Sprintf("%d selected", len(marked))) +
+	if marked := m.panels[m.activePanel].markedCount(); marked > 0 {
+		return xdfileTagStyle.Render(fmt.Sprintf("%d selected", marked)) +
 			sep +
 			xdfileDimStyle.Render(m.panels[m.activePanel].Cwd)
 	}
@@ -314,6 +314,7 @@ func (m *xdfileModel) renderPanel(index int) string {
 			index == m.activePanel,
 			m.hover.Panel == index && m.hover.PanelIndex == i,
 			innerW,
+			nameWidth,
 		))
 	}
 	blankLine := xdfileBlank(innerW)
@@ -374,8 +375,7 @@ func (m *xdfileModel) renderQuickViewPanel() string {
 		Render(strings.Join(lines[:innerH], "\n")))
 }
 
-func (m *xdfileModel) renderEntry(entry xdfileEntry, selected bool, marked bool, active bool, hovered bool, width int) string {
-	nameWidth := xdfilePanelNameWidth(width)
+func (m *xdfileModel) renderEntry(entry xdfileEntry, selected bool, marked bool, active bool, hovered bool, width int, nameWidth int) string {
 	kind := xdfileEntryKindSpecForEntry(entry)
 	prefix := " "
 	switch {
@@ -388,15 +388,8 @@ func (m *xdfileModel) renderEntry(entry xdfileEntry, selected bool, marked bool,
 	}
 
 	name := prefix + kind.Label + xdfileGitMarkerPrefix(entry.GitMarker) + " " + entry.Name
-
-	size := ""
-	modified := ""
-	if !entry.IsParent {
-		modified = entry.Modified.Format("01-02 15:04")
-	}
-	if !entry.IsDir && !entry.IsParent {
-		size = xdfileHumanSize(entry.Size)
-	}
+	size := entry.displaySize()
+	modified := entry.displayTime()
 
 	if selected || marked {
 		plainLine := xdfilePadRight(name, nameWidth) + " " +
@@ -1135,9 +1128,7 @@ func (m *xdfileModel) syncQuickViewViewport() {
 		m.quickView.Text = xdfileDimStyle.Render("No selection")
 		m.quickView.Description = "Ctrl+Q close"
 		m.quickView.Visual = false
-		m.quickView.Viewport.Width = innerW
-		m.quickView.Viewport.Height = bodyHeight
-		m.quickView.Viewport.SetContent(m.quickView.Text)
+		m.syncQuickViewTextViewport(innerW, bodyHeight)
 		return
 	}
 
@@ -1163,9 +1154,18 @@ func (m *xdfileModel) syncQuickViewViewport() {
 		return
 	}
 
-	m.quickView.Viewport.Width = innerW
-	m.quickView.Viewport.Height = bodyHeight
-	xdfileSetTruncatedViewportContent(&m.quickView.Viewport, m.quickView.Text, m.quickView.Viewport.Width)
+	m.syncQuickViewTextViewport(innerW, bodyHeight)
+}
+
+func (m *xdfileModel) syncQuickViewTextViewport(width int, height int) {
+	m.quickView.Viewport.Width = width
+	m.quickView.Viewport.Height = height
+	if m.quickView.ViewportW == width && m.quickView.ViewportText == m.quickView.Text {
+		return
+	}
+	xdfileSetTruncatedViewportContent(&m.quickView.Viewport, m.quickView.Text, width)
+	m.quickView.ViewportW = width
+	m.quickView.ViewportText = m.quickView.Text
 }
 
 func (m *xdfileModel) renderPreviewThumbnail(path string, width int, height int) (string, bool, error) {
