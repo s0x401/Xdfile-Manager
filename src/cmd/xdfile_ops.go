@@ -1590,8 +1590,9 @@ func xdfileStartDetachedStreamingCommand(dir string, command string, events chan
 			events <- xdfileTerminalLineMsg{Line: detached.Output, Finalize: true}
 		}
 		events <- xdfileTerminalCommandDoneMsg{
-			Cwd: dir,
-			Err: detached.Err,
+			Command: detached.Command,
+			Cwd:     dir,
+			Err:     detached.Err,
 		}
 	}()
 	return cancel, true
@@ -1599,6 +1600,7 @@ func xdfileStartDetachedStreamingCommand(dir string, command string, events chan
 
 func xdfileStartStreamingCommandPipe(dir string, command string, events chan tea.Msg) (func(), *vt.SafeEmulator, error) {
 	ctx, cancel := context.WithCancel(context.Background())
+	originalCommand := strings.TrimSpace(command)
 
 	if detached, handled := xdfileStartDetachedExternalCommand(dir, command); handled {
 		go func() {
@@ -1608,8 +1610,9 @@ func xdfileStartStreamingCommandPipe(dir string, command string, events chan tea
 				events <- xdfileTerminalLineMsg{Line: detached.Output, Finalize: true}
 			}
 			events <- xdfileTerminalCommandDoneMsg{
-				Cwd: dir,
-				Err: detached.Err,
+				Command: detached.Command,
+				Cwd:     dir,
+				Err:     detached.Err,
 			}
 		}()
 		return cancel, nil, nil
@@ -1666,6 +1669,7 @@ func xdfileStartStreamingCommandPipe(dir string, command string, events chan tea
 		}
 
 		events <- xdfileTerminalCommandDoneMsg{
+			Command:  originalCommand,
 			Cwd:      dir,
 			Err:      err,
 			Canceled: canceled,
@@ -1679,6 +1683,7 @@ func xdfileStartStreamingCommandPTY(dir string, command string, events chan tea.
 	ctx, cancel := context.WithCancel(context.Background())
 	width = max(10, width)
 	height = max(1, height)
+	originalCommand := strings.TrimSpace(command)
 
 	command = xdfilePrepareExternalCommand(command)
 	path, args, cleanup, err := xdfileExternalCommandInvocation(dir, command)
@@ -1753,6 +1758,7 @@ func xdfileStartStreamingCommandPTY(dir string, command string, events chan tea.
 		}
 
 		events <- xdfileTerminalCommandDoneMsg{
+			Command:  originalCommand,
 			Cwd:      dir,
 			Err:      err,
 			Canceled: canceled,

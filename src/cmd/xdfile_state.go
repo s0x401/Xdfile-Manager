@@ -34,13 +34,17 @@ type xdfileTerminal struct {
 	ViewHeight      int
 	ViewportContent string
 
-	History          []string
-	HistoryIndex     int
-	HistoryDraft     string
-	CommandHadOutput bool
-	PendingPanel     int
-	PendingCwd       string
-	PendingPolls     int
+	History               []string
+	HistoryItems          map[string]xdfileTerminalHistoryItem
+	HistoryDeleted        map[string]struct{}
+	HistoryIndex          int
+	HistoryDraft          string
+	CommandHadOutput      bool
+	PendingPanel          int
+	PendingCwd            string
+	PendingPolls          int
+	PendingHistoryCommand string
+	PendingHistoryCwd     string
 
 	StartupSubmitPending bool
 	StreamCanRewrite     bool
@@ -134,6 +138,7 @@ type xdfileTerminalLineMsg struct {
 }
 
 type xdfileTerminalCommandDoneMsg struct {
+	Command  string
 	Cwd      string
 	Err      error
 	Canceled bool

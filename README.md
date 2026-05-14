@@ -186,7 +186,8 @@ Linux 文件剪贴板需要 `wl-clipboard`、`xclip` 或 `xsel`。
 | `Ctrl+O` | 展开终端 |
 | 鼠标点击输入行 | 移动输入光标 |
 | `Up / Down` | 选择预测 |
-| `Right / Tab` | 接受预测 |
+| `Right` | 接受预测 |
+| `Delete` | 删除选中的历史预测命令 |
 | `Esc` | 关闭预测 |
 
 提示符：

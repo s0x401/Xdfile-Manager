@@ -580,8 +580,15 @@ func (m *xdfileModel) handleManagedTerminalBoundKey(msg tea.KeyMsg) (tea.Cmd, bo
 		case "left", "right":
 			cmd := m.updateManagedTerminalInputWithoutRefreshing(msg)
 			return cmd, true
+		case "delete", "del":
+			if m.deleteSelectedManagedTerminalHistorySuggestion() {
+				return nil, true
+			}
 		case "tab":
 			return nil, m.acceptManagedTerminalSuggestion()
+		}
+		if msg.Type == tea.KeyDelete && m.deleteSelectedManagedTerminalHistorySuggestion() {
+			return nil, true
 		}
 	}
 
@@ -684,6 +691,13 @@ func (m *xdfileModel) handleTerminalKey(msg tea.KeyMsg) tea.Cmd {
 			return m.dismissManagedTerminalPopup()
 		case "left", "right":
 			return m.updateManagedTerminalInputWithoutRefreshing(msg)
+		case "delete", "del":
+			if m.deleteSelectedManagedTerminalHistorySuggestion() {
+				return nil
+			}
+		}
+		if msg.Type == tea.KeyDelete && m.deleteSelectedManagedTerminalHistorySuggestion() {
+			return nil
 		}
 	}
 

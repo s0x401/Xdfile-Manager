@@ -23,24 +23,6 @@ var xdfileShellAliasMap = map[string][]string{
 	"cat": {"type"},
 }
 
-var xdfileManagedShellDefaultSuggestions = []string{
-	"cd",
-	"dir",
-	"ls",
-	"ll",
-	"la",
-	"pwd",
-	"clear",
-	"cls",
-	"type",
-	"cat",
-	"echo",
-	"git status",
-	"go test ./...",
-	"go run .",
-	"explorer .",
-}
-
 func xdfileRunManagedShellCommand(dir string, command string) (xdfileTerminalResultMsg, bool) {
 	command = strings.TrimSpace(command)
 	result := xdfileTerminalResultMsg{
@@ -349,47 +331,24 @@ func xdfileContainsShellOperators(command string) bool {
 	return false
 }
 
-func xdfileManagedShellSuggestions(input string, cwd string, history []string) []string {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return nil
-	}
+const xdfileManagedShellPathSuggestionLimit = 20
 
-	suggestions := make([]string, 0, 16)
-	seen := make(map[string]struct{}, 16)
-	inputLower := strings.ToLower(input)
-	add := func(candidate string) {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || strings.EqualFold(candidate, input) {
-			return
-		}
-		if !strings.HasPrefix(strings.ToLower(candidate), inputLower) {
-			return
-		}
-		if _, ok := seen[candidate]; ok {
-			return
-		}
-		seen[candidate] = struct{}{}
-		suggestions = append(suggestions, candidate)
-	}
+type xdfileShellPathSuggestionMode int
 
-	for i := len(history) - 1; i >= 0; i-- {
-		add(history[i])
-	}
-	for _, candidate := range xdfileManagedShellDefaultSuggestions {
-		add(candidate)
-	}
-	for _, candidate := range xdfileManagedShellPathSuggestions(input, cwd) {
-		add(candidate)
-	}
-	return suggestions
+const (
+	xdfileShellPathSuggestionAny xdfileShellPathSuggestionMode = iota
+	xdfileShellPathSuggestionDirs
+	xdfileShellPathSuggestionFiles
+)
+
+type xdfileManagedShellPathSuggestionMatch struct {
+	Value string
+	Name  string
+	IsDir bool
 }
 
 func xdfileManagedShellPathSuggestions(input string, cwd string) []string {
 	if xdfileIsNetBoxPath(cwd) {
-		return nil
-	}
-	if strings.HasSuffix(input, " ") {
 		return nil
 	}
 
@@ -399,37 +358,38 @@ func xdfileManagedShellPathSuggestions(input string, cwd string) []string {
 	}
 
 	commandName := strings.ToLower(fields[0])
-	if len(fields) <= 1 && !xdfileShellCommandExpectsPath(commandName) {
+	mode, expectsPath := xdfileShellCommandPathSuggestionMode(commandName)
+	if len(fields) <= 1 && !expectsPath {
 		return nil
 	}
 
 	lastSpace := strings.LastIndexAny(input, " \t")
-	if lastSpace < 0 || lastSpace >= len(input)-1 {
+	if lastSpace < 0 {
 		return nil
 	}
 
 	base := input[:lastSpace+1]
 	partial := strings.TrimSpace(input[lastSpace+1:])
-	if partial == "" {
-		return nil
-	}
 
-	quoted := partial[0] == '"' || partial[0] == '\''
+	quoted := false
 	quoteChar := byte(0)
-	if quoted {
+	if partial != "" && (partial[0] == '"' || partial[0] == '\'') {
+		quoted = true
 		quoteChar = partial[0]
 		partial = strings.TrimPrefix(partial, string(quoteChar))
-	}
-	lookup, err := xdfileResolveShellPath(cwd, partial)
-	if err != nil {
-		return nil
 	}
 
 	searchDir := cwd
 	namePrefix := partial
-	if dirPart, filePart := filepath.Split(lookup); dirPart != "" {
-		searchDir = filepath.Clean(dirPart)
-		namePrefix = filePart
+	if partial != "" {
+		lookup, err := xdfileResolveShellPath(cwd, partial)
+		if err != nil {
+			return nil
+		}
+		if dirPart, filePart := filepath.Split(lookup); dirPart != "" {
+			searchDir = filepath.Clean(dirPart)
+			namePrefix = filePart
+		}
 	}
 	namePrefixLower := strings.ToLower(namePrefix)
 
@@ -438,35 +398,69 @@ func xdfileManagedShellPathSuggestions(input string, cwd string) []string {
 		return nil
 	}
 
-	results := make([]string, 0, len(items))
+	matches := make([]xdfileManagedShellPathSuggestionMatch, 0, min(len(items), xdfileManagedShellPathSuggestionLimit))
 	for _, item := range items {
 		name := item.Name()
 		if !strings.HasPrefix(strings.ToLower(name), namePrefixLower) {
 			continue
+		}
+		isDir := item.IsDir()
+		switch mode {
+		case xdfileShellPathSuggestionDirs:
+			if !isDir {
+				continue
+			}
+		case xdfileShellPathSuggestionFiles:
+			if isDir {
+				continue
+			}
 		}
 
 		resolved := name
 		if partialDir, _ := filepath.Split(partial); partialDir != "" {
 			resolved = filepath.Join(partialDir, name)
 		}
-		if item.IsDir() {
+		if isDir {
 			resolved += string(os.PathSeparator)
 		}
 		if quoted || strings.ContainsRune(resolved, ' ') {
 			resolved = string(maxByte(quoteChar, '"')) + resolved + string(maxByte(quoteChar, '"'))
 		}
-		results = append(results, base+resolved)
+		matches = append(matches, xdfileManagedShellPathSuggestionMatch{
+			Value: base + resolved,
+			Name:  name,
+			IsDir: isDir,
+		})
 	}
-	sort.Strings(results)
+	sort.SliceStable(matches, func(i, j int) bool {
+		left := matches[i]
+		right := matches[j]
+		if left.IsDir != right.IsDir {
+			return left.IsDir
+		}
+		return strings.ToLower(left.Name) < strings.ToLower(right.Name)
+	})
+	if len(matches) > xdfileManagedShellPathSuggestionLimit {
+		matches = matches[:xdfileManagedShellPathSuggestionLimit]
+	}
+
+	results := make([]string, 0, len(matches))
+	for _, match := range matches {
+		results = append(results, match.Value)
+	}
 	return results
 }
 
-func xdfileShellCommandExpectsPath(name string) bool {
+func xdfileShellCommandPathSuggestionMode(name string) (xdfileShellPathSuggestionMode, bool) {
 	switch strings.ToLower(name) {
-	case "cd", "chdir", "dir", "ls", "ll", "la", "type", "cat":
-		return true
+	case "cd", "chdir", "set-location":
+		return xdfileShellPathSuggestionDirs, true
+	case "type", "cat", "get-content":
+		return xdfileShellPathSuggestionFiles, true
+	case "dir", "ls", "ll", "la", "copy", "move", "del", "rm", "cp", "mv", "explorer", "code", "get-childitem", "copy-item", "move-item", "remove-item":
+		return xdfileShellPathSuggestionAny, true
 	default:
-		return false
+		return xdfileShellPathSuggestionAny, false
 	}
 }
 

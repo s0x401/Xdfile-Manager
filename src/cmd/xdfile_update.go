@@ -226,6 +226,9 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminal.PendingPanel = -1
 		m.reloadPanelsAfterTerminalCommand(msg.Cwd)
 		_ = m.syncTerminalToPanel(m.activePanel)
+		if err := m.updateTerminalHistoryResult(msg.Command, msg.Cwd, msg.Err != nil); err != nil {
+			m.setStatusErr(err)
+		}
 		if msg.Canceled {
 			m.setStatus("Command canceled")
 		} else if msg.Err != nil {
@@ -251,6 +254,9 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if _, _, _, ok := m.currentPTYPromptStateForCompletion(width, height); ok {
 			m.terminal.Busy = false
 			m.terminal.PendingPolls = 0
+			if err := m.updateTerminalHistoryResult("", m.terminal.Cwd, false); err != nil {
+				m.setStatusErr(err)
+			}
 			m.setStatus("Command completed")
 			return m, nil
 		}
@@ -272,9 +278,13 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminal.Emulator = nil
 		m.terminal.ScrollOffset = 0
 		if msg.Err != nil {
+			if err := m.updateTerminalHistoryResult("", m.terminal.Cwd, true); err != nil {
+				m.setStatusErr(err)
+			}
 			m.appendTerminalLine(xdfileStatusErrStyle.Render(msg.Err.Error()), false, true)
 			m.setStatusErr(msg.Err)
 		} else {
+			m.clearPendingTerminalHistory("")
 			m.setStatus("PTY terminal closed")
 		}
 		return m, nil
@@ -299,6 +309,9 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.terminal.Cwd = msg.Dir
 			m.syncManagedTerminalPrompt()
 		}
+		if err := m.updateTerminalHistoryResult(msg.Command, msg.Dir, msg.Err != nil); err != nil {
+			m.setStatusErr(err)
+		}
 		if msg.SyncActivePanel && msg.Dir != "" {
 			m.panels[m.activePanel].Cwd = msg.Dir
 			if err := m.reloadPanel(m.activePanel); err != nil {
@@ -319,6 +332,9 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reloadAllPanels()
 		_ = m.syncTerminalToPanel(m.activePanel)
 		m.appendTerminalPrompt(m.terminal.Cwd, msg.Command)
+		if err := m.updateTerminalHistoryResult(msg.Command, msg.Dir, msg.Err != nil); err != nil {
+			m.setStatusErr(err)
+		}
 		if msg.Err != nil {
 			m.setStatusErr(msg.Err)
 		} else {

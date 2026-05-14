@@ -672,10 +672,11 @@ func xdfileLoadTerminalHistorySeed() []string {
 			if line == "" {
 				continue
 			}
-			if _, ok := seen[line]; ok {
+			key := xdfileTerminalHistoryKey(line)
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			seen[line] = struct{}{}
+			seen[key] = struct{}{}
 			history = append(history, line)
 			if len(history) >= 400 {
 				break
@@ -754,6 +755,7 @@ func xdfileHelpText() string {
 		"Type text        writes into the command line while panel arrows stay on the file list",
 		"Backspace        edits the command line only; use Enter on [..] or Panels -> Parent to go up",
 		"Popup arrows     when the command popup is open, Up/Down select and Right/Tab accept",
+		"Delete           remove the selected command history prediction",
 		"Ctrl+O           expand or restore the bottom terminal inside the Xdfile Manager panel area",
 		"Options          Ctrl+Q Docked switches between floating preview and docked quick view",
 		"Theme            switches between Persona 3, Persona 3 Reload, Persona 4, and Persona 5 visual styles",

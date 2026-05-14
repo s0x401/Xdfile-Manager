@@ -340,6 +340,7 @@ func (m *xdfileModel) submitTerminalCommand(command string) tea.Cmd {
 	if strings.EqualFold(command, "clear") || strings.EqualFold(command, "cls") {
 		m.terminal.Lines = nil
 		m.syncTerminalViewport(true)
+		m.clearPendingTerminalHistory(command)
 		m.setStatus("Terminal cleared")
 		return nil
 	}
@@ -363,18 +364,6 @@ func (m *xdfileModel) submitTerminalCommand(command string) tea.Cmd {
 	m.terminal.Busy = true
 	width, height := m.streamingCommandTerminalSize()
 	return xdfileExecuteCommandCmd(m.terminal.Cwd, command, width, height)
-}
-
-func (m *xdfileModel) pushTerminalHistory(command string) {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return
-	}
-	if n := len(m.terminal.History); n == 0 || m.terminal.History[n-1] != command {
-		m.terminal.History = append(m.terminal.History, command)
-	}
-	m.terminal.HistoryIndex = -1
-	m.terminal.HistoryDraft = ""
 }
 
 func xdfileSuppressTerminalExitLine(err error, commandHadOutput bool) bool {
@@ -449,7 +438,7 @@ func (m *xdfileModel) refreshManagedTerminalSuggestions() {
 	m.terminal.Input.ShowSuggestions = false
 	m.terminal.Input.SetSuggestions(nil)
 
-	raw := xdfileManagedShellSuggestions(input, m.terminal.Cwd, m.terminal.History)
+	raw := m.terminalSuggestionValues(input, 20)
 	filtered := make([]string, 0, len(raw))
 	trimmedInput := strings.TrimSpace(input)
 	for _, suggestion := range raw {

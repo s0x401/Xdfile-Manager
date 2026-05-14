@@ -85,55 +85,6 @@ type xdfilePTYPromptState struct {
 	Ok      bool
 }
 
-var xdfileTerminalSuggestionDefaults = []string{
-	"cd",
-	"ls",
-	"dir",
-	"pwd",
-	"clear",
-	"cls",
-	"cat",
-	"type",
-	"copy",
-	"move",
-	"del",
-	"set",
-	"mkdir",
-	"rm",
-	"cp",
-	"mv",
-	"git",
-	"git status",
-	"git add",
-	"git commit",
-	"git checkout",
-	"git pull",
-	"git push",
-	"go run .",
-	"go test ./...",
-	"npm install",
-	"npm run dev",
-	"pnpm install",
-	"pnpm dev",
-	"cargo build",
-	"cargo test",
-	"python",
-	"python -m",
-	"pip install",
-	"node",
-	"code .",
-	"explorer .",
-	"Get-ChildItem",
-	"Set-Location",
-	"Get-Location",
-	"Clear-Host",
-	"Get-Content",
-	"Copy-Item",
-	"Move-Item",
-	"Remove-Item",
-	"New-Item",
-}
-
 const (
 	xdfilePTYCommandPollInterval  = 250 * time.Millisecond
 	xdfilePTYCommandPollMaxTicks  = 1200
@@ -687,7 +638,7 @@ func (m *xdfileModel) ptyInlineSuggestion(width int, height int) (int, int, stri
 		return 0, 0, "", false
 	}
 
-	suggestion := xdfileBestTerminalSuggestion(input, m.terminal.History)
+	suggestion := m.bestTerminalSuggestion(input)
 	if suggestion == "" {
 		return 0, 0, "", false
 	}
@@ -712,48 +663,6 @@ func (m *xdfileModel) acceptPTYInlineSuggestion() bool {
 
 	m.terminal.Emulator.SendText(suffix)
 	m.setTerminalScrollOffset(0)
-	return true
-}
-
-func xdfileBestTerminalSuggestion(prefix string, history []string) string {
-	rawPrefix := prefix
-	prefix = strings.TrimSpace(prefix)
-	if len([]rune(prefix)) < 2 {
-		return ""
-	}
-
-	prefixLower := strings.ToLower(prefix)
-	for i := len(history) - 1; i >= 0; i-- {
-		candidate := strings.TrimSpace(history[i])
-		if candidate == "" || strings.EqualFold(candidate, prefix) {
-			continue
-		}
-		if !xdfileAllowTerminalSuggestion(rawPrefix, candidate) {
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(candidate), prefixLower) {
-			return candidate
-		}
-	}
-
-	for _, candidate := range xdfileTerminalSuggestionDefaults {
-		if strings.EqualFold(candidate, prefix) {
-			continue
-		}
-		if !xdfileAllowTerminalSuggestion(rawPrefix, candidate) {
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(candidate), prefixLower) {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func xdfileAllowTerminalSuggestion(prefix string, candidate string) bool {
-	if strings.ContainsAny(candidate, " \t") && !strings.ContainsAny(prefix, " \t") {
-		return false
-	}
 	return true
 }
 

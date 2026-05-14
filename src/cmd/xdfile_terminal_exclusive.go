@@ -270,6 +270,10 @@ func (m *xdfileModel) finishExclusiveTerminal(err error) {
 	m.reloadAllPanels()
 	m.refreshManagedTerminalSuggestions()
 	m.focusManagedTerminalInput()
+	failed := err != nil
+	if historyErr := m.updateTerminalHistoryResult(command, m.terminal.Cwd, failed); historyErr != nil {
+		m.setStatusErr(historyErr)
+	}
 
 	switch {
 	case err != nil:

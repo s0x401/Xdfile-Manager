@@ -37,7 +37,9 @@ func newXdfileModel(paths []string) *xdfileModel {
 	layoutPrefs.ThemeName = xdfileNormalizeThemeName(layoutPrefs.ThemeName)
 	xdfileApplyTheme(xdfileThemeByName(layoutPrefs.ThemeName))
 	leftPath, rightPath := xdfileResolveStartPaths(paths, layoutPrefs)
-	terminalHistory := xdfileLoadTerminalHistorySeed()
+	terminalHistoryItems, terminalHistoryDeleted, terminalHistoryErr := xdfileLoadTerminalHistoryState(xdfileTerminalHistoryPath())
+	terminalHistoryItems = xdfileMergeTerminalHistorySeed(terminalHistoryItems, xdfileLoadTerminalHistorySeed(), terminalHistoryDeleted)
+	terminalHistory := xdfileTerminalHistoryCommands(terminalHistoryItems, terminalHistoryDeleted)
 
 	termInput := xdfileNewManagedTerminalInput()
 
@@ -81,6 +83,8 @@ func newXdfileModel(paths []string) *xdfileModel {
 			Session:          nil,
 			Emulator:         nil,
 			History:          terminalHistory,
+			HistoryItems:     terminalHistoryItems,
+			HistoryDeleted:   terminalHistoryDeleted,
 			HistoryIndex:     -1,
 			PendingPanel:     -1,
 			SuggestionCursor: -1,
@@ -105,6 +109,9 @@ func newXdfileModel(paths []string) *xdfileModel {
 	}
 	if netboxErr != nil {
 		m.setStatusErr(fmt.Errorf("SSH connection settings ignored: %w", netboxErr))
+	}
+	if terminalHistoryErr != nil {
+		m.setStatusErr(fmt.Errorf("terminal history ignored: %w", terminalHistoryErr))
 	}
 	if deleteUndoCleanupErr != nil {
 		m.setStatusErr(fmt.Errorf("stale delete undo cleanup ignored: %w", deleteUndoCleanupErr))
