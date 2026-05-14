@@ -482,21 +482,19 @@ func (m *xdfileModel) handlePanelKey(msg tea.KeyMsg) tea.Cmd {
 
 	switch msg.Type {
 	case tea.KeyShiftUp:
-		if len(panel.Entries) > 0 {
-			panel.selectRange(panel.rangeSelectionAnchor(), max(0, panel.Cursor-1), rows)
+		if panel.toggleMarkedStep(-1, rows) {
 			selectionChanged = true
 		}
 	case tea.KeyShiftDown:
-		if len(panel.Entries) > 0 {
-			panel.selectRange(panel.rangeSelectionAnchor(), min(len(panel.Entries)-1, panel.Cursor+1), rows)
+		if panel.toggleMarkedStep(1, rows) {
 			selectionChanged = true
 		}
 	case tea.KeyShiftLeft:
-		if panel.selectRange(panel.rangeSelectionAnchor(), panel.firstSelectableIndex(), rows) > 0 {
+		if panel.toggleRangeStep(-rows, rows) > 0 {
 			selectionChanged = true
 		}
 	case tea.KeyShiftRight:
-		if panel.selectRange(panel.rangeSelectionAnchor(), panel.lastSelectableIndex(), rows) > 0 {
+		if panel.toggleRangeStep(rows, rows) > 0 {
 			selectionChanged = true
 		}
 	}

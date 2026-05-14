@@ -139,6 +139,85 @@ func (p *xdfilePanel) selectRange(anchor int, target int, rows int) int {
 	return p.selectRangeWithBase(anchor, target, rows, nil)
 }
 
+func (p *xdfilePanel) toggleMarkedStep(delta int, rows int) bool {
+	if len(p.Entries) == 0 {
+		return false
+	}
+	current := p.selectableIndexFrom(p.Cursor, 0)
+	if current < 0 || current >= len(p.Entries) || p.Entries[current].IsParent {
+		return false
+	}
+
+	p.toggleMarkedAt(current)
+	focus := p.selectableIndexForStep(current, delta)
+	p.Cursor = focus
+	p.ensureVisible(rows)
+	p.RangeAnchor = -1
+	return true
+}
+
+func (p *xdfilePanel) toggleRangeStep(delta int, rows int) int {
+	if len(p.Entries) == 0 {
+		p.clearMarked()
+		return 0
+	}
+	anchor := p.rangeSelectionAnchor()
+	if p.RangeAnchor < 0 || p.RangeAnchor >= len(p.Entries) {
+		anchor = p.selectableIndexFrom(p.Cursor, 0)
+	}
+	return p.toggleRange(anchor, p.selectableIndexForStep(p.Cursor, delta), rows)
+}
+
+func (p *xdfilePanel) toggleRange(anchor int, target int, rows int) int {
+	if len(p.Entries) == 0 {
+		p.clearMarked()
+		return 0
+	}
+
+	anchor = max(0, min(anchor, len(p.Entries)-1))
+	target = max(0, min(target, len(p.Entries)-1))
+	p.RangeAnchor = anchor
+	p.Cursor = target
+	p.ensureVisible(rows)
+
+	start := min(anchor, target)
+	end := max(anchor, target)
+	count := 0
+	allMarked := true
+	for i := start; i <= end; i++ {
+		entry := p.Entries[i]
+		if entry.IsParent {
+			continue
+		}
+		count++
+		if _, ok := p.MarkedPaths[entry.Path]; !ok {
+			allMarked = false
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+
+	if p.MarkedPaths == nil {
+		p.MarkedPaths = make(map[string]struct{}, count)
+	}
+	for i := start; i <= end; i++ {
+		entry := p.Entries[i]
+		if entry.IsParent {
+			continue
+		}
+		if allMarked {
+			delete(p.MarkedPaths, entry.Path)
+			continue
+		}
+		p.MarkedPaths[entry.Path] = struct{}{}
+	}
+	if len(p.MarkedPaths) == 0 {
+		p.MarkedPaths = nil
+	}
+	return count
+}
+
 func (p *xdfilePanel) selectRangeWithBase(anchor int, target int, rows int, base map[string]struct{}) int {
 	if len(p.Entries) == 0 {
 		p.clearMarked()
@@ -179,6 +258,61 @@ func (p *xdfilePanel) rangeSelectionAnchor() int {
 		return p.RangeAnchor
 	}
 	return p.Cursor
+}
+
+func (p *xdfilePanel) selectableIndexFrom(index int, delta int) int {
+	if len(p.Entries) == 0 {
+		return 0
+	}
+	index = max(0, min(index, len(p.Entries)-1))
+	if delta == 0 {
+		if !p.Entries[index].IsParent {
+			return index
+		}
+		delta = 1
+	}
+
+	for next := index + delta; next >= 0 && next < len(p.Entries); next += delta {
+		if !p.Entries[next].IsParent {
+			return next
+		}
+	}
+	if !p.Entries[index].IsParent {
+		return index
+	}
+	if delta < 0 {
+		return p.firstSelectableIndex()
+	}
+	return p.lastSelectableIndex()
+}
+
+func (p *xdfilePanel) selectableIndexForStep(index int, delta int) int {
+	if len(p.Entries) == 0 {
+		return 0
+	}
+	if delta == 0 {
+		return p.selectableIndexFrom(index, 0)
+	}
+
+	direction := 1
+	if delta < 0 {
+		direction = -1
+	}
+	target := max(0, min(index+delta, len(p.Entries)-1))
+	if !p.Entries[target].IsParent {
+		return target
+	}
+	for next := target + direction; next >= 0 && next < len(p.Entries); next += direction {
+		if !p.Entries[next].IsParent {
+			return next
+		}
+	}
+	for next := target - direction; next >= 0 && next < len(p.Entries); next -= direction {
+		if !p.Entries[next].IsParent {
+			return next
+		}
+	}
+	return p.selectableIndexFrom(index, 0)
 }
 
 func (p *xdfilePanel) firstSelectableIndex() int {
