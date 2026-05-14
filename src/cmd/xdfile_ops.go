@@ -38,6 +38,7 @@ import (
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/unicode"
 	_ "image/gif"
@@ -545,13 +546,60 @@ func xdfileReadZIPEntries(path string) ([]string, error) {
 
 	entries := make([]string, 0, len(zipReader.File))
 	for _, file := range zipReader.File {
-		name := file.Name
+		name := xdfileZIPEntryName(file)
 		if file.FileInfo().IsDir() && !strings.HasSuffix(name, "/") {
 			name += "/"
 		}
 		entries = append(entries, name)
 	}
 	return entries, nil
+}
+
+func xdfileZIPEntryName(file *zip.File) string {
+	raw := []byte(file.Name)
+	if !file.NonUTF8 && utf8.Valid(raw) {
+		return file.Name
+	}
+	if file.NonUTF8 && utf8.Valid(raw) {
+		return file.Name
+	}
+
+	gbName, gbOK := xdfileDecodeBytes(raw, simplifiedchinese.GB18030.NewDecoder())
+	cp437Name, cp437OK := xdfileDecodeBytes(raw, charmap.CodePage437.NewDecoder())
+	switch {
+	case gbOK && xdfileContainsCJK(gbName):
+		return gbName
+	case cp437OK:
+		return cp437Name
+	case gbOK:
+		return gbName
+	default:
+		return strings.ToValidUTF8(file.Name, "")
+	}
+}
+
+func xdfileDecodeBytes(data []byte, decoder *encoding.Decoder) (string, bool) {
+	if len(data) == 0 {
+		return "", true
+	}
+	decoded, err := decoder.Bytes(data)
+	if err != nil || !utf8.Valid(decoded) {
+		return "", false
+	}
+	return string(decoded), true
+}
+
+func xdfileContainsCJK(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 0x3400 && r <= 0x4dbf,
+			r >= 0x4e00 && r <= 0x9fff,
+			r >= 0xf900 && r <= 0xfaff,
+			r >= 0x20000 && r <= 0x2ebef:
+			return true
+		}
+	}
+	return false
 }
 
 func xdfileReadTarEntries(path string, gzipCompressed bool, bzipCompressed bool) ([]string, error) {
