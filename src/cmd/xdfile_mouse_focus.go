@@ -371,12 +371,16 @@ func (m *xdfileModel) handlePanelBlankMousePress(msg tea.MouseMsg, hit xdfilePan
 func (m *xdfileModel) finishPanelMouseClick(msg tea.MouseMsg, panelIndex int, entryIndex int, focusCmd tea.Cmd) (tea.Cmd, bool) {
 	now := time.Now()
 	if !msg.Ctrl && !msg.Shift && m.lastClick.panel == panelIndex && m.lastClick.row == entryIndex && now.Sub(m.lastClick.at) < 450*time.Millisecond {
-		m.panelMouse = xdfilePanelMouseState{}
-		m.lastClick = xdfileClickState{panel: -1, row: -1}
+		m.cancelPanelMouseInteraction()
 		return tea.Batch(focusCmd, m.activateSelection()), true
 	}
 	m.lastClick = xdfileClickState{panel: panelIndex, row: entryIndex, at: now}
 	return nil, false
+}
+
+func (m *xdfileModel) cancelPanelMouseInteraction() {
+	m.panelMouse = xdfilePanelMouseState{}
+	m.lastClick = xdfileClickState{panel: -1, row: -1}
 }
 
 func (m *xdfileModel) handlePanelMouseContinuation(msg tea.MouseMsg) (tea.Cmd, bool) {

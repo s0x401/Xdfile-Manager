@@ -323,6 +323,7 @@ func (m *xdfileModel) pasteClipboardToActivePanel() tea.Cmd {
 			return nil
 		}
 	}
+	m.cancelPanelMouseInteraction()
 
 	pending := &xdfilePendingClipboardPaste{
 		Sources:        append([]string(nil), sources...),

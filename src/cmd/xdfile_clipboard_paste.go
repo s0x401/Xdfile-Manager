@@ -425,6 +425,7 @@ func (m *xdfileModel) finishPendingClipboardPaste(pending *xdfilePendingClipboar
 	}
 
 	m.pendingClipboardPaste = nil
+	m.cancelPanelMouseInteraction()
 	m.reloadAllPanels()
 	m.focusClipboardPasteTarget(pending)
 	if pending.CutMode {
@@ -490,6 +491,7 @@ func (m *xdfileModel) focusClipboardPasteTarget(pending *xdfilePendingClipboardP
 
 	rows := m.panels[panelIndex].visibleRows(m.layout.panelRects[panelIndex].h)
 	if m.panels[panelIndex].focusPath(targetPath, rows) {
+		m.panels[panelIndex].resetRangeAnchor()
 		m.syncQuickViewViewport()
 	}
 }
