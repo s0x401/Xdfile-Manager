@@ -22,6 +22,9 @@ func (m *xdfileModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncExclusiveTerminalViewport()
 			return m, nil
 		}
+		if !m.terminalExpandedViewActive() {
+			m.ensurePanelCursorsVisible()
+		}
 		m.syncTerminalViewport(false)
 		m.syncModalViewport()
 		m.syncQuickViewViewport()

@@ -197,6 +197,7 @@ func (m *xdfileModel) toggleTerminalExpandedView() tea.Cmd {
 		m.terminalReturnFocus = xdfileTerminalFocusState{}
 		if m.width > 0 && m.height > 0 {
 			m.computeLayout()
+			m.ensurePanelCursorsVisible()
 			m.syncTerminalViewport(false)
 		}
 		m.setStatus("Terminal restored")

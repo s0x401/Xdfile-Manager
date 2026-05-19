@@ -151,6 +151,16 @@ func (m *xdfileModel) computeLayout() {
 	m.computeTerminalDimensions()
 }
 
+func (m *xdfileModel) ensurePanelCursorsVisible() {
+	for i := range m.panels {
+		rect := m.layout.panelRects[i]
+		if rect.h <= 0 {
+			continue
+		}
+		m.panels[i].ensureVisible(m.panels[i].visibleRows(rect.h))
+	}
+}
+
 func (m *xdfileModel) restorePanelFocusAfterManagedCommand() {
 	m.terminalFocused = false
 	m.terminalAutoFocused = false

@@ -27,6 +27,10 @@ func OpenPath(path string) error {
 	return openPath(path)
 }
 
+func OpenPathDirect(path string) error {
+	return openPath(path)
+}
+
 func ShowProperties(path string) error {
 	return showProperties(path)
 }

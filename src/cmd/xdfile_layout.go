@@ -308,6 +308,7 @@ func (m *xdfileModel) adjustPanelSplit(deltaCols int) tea.Cmd {
 
 	m.layoutPrefs.PanelSplitPercent = xdfilePercentFromSize(nextLeft, availableWidth)
 	m.computeLayout()
+	m.ensurePanelCursorsVisible()
 	m.syncTerminalViewport(false)
 
 	panelPercent, terminalPercent := m.currentLayoutPercents()
@@ -337,6 +338,7 @@ func (m *xdfileModel) adjustTerminalHeight(deltaRows int) tea.Cmd {
 
 	m.layoutPrefs.TerminalHeightPercent = xdfilePercentFromSize(nextTerminal, availableHeight)
 	m.computeLayout()
+	m.ensurePanelCursorsVisible()
 	m.syncTerminalViewport(false)
 
 	panelPercent, terminalPercent := m.currentLayoutPercents()
@@ -394,6 +396,7 @@ func (m *xdfileModel) resetSetup() tea.Cmd {
 	}
 
 	m.computeLayout()
+	m.ensurePanelCursorsVisible()
 	m.syncTerminalViewport(false)
 
 	if m.layoutFile != "" {

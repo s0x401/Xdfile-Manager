@@ -973,7 +973,7 @@ func xdfileExtractPrintableStrings(data []byte, minLength int, maxCount int) []s
 }
 
 func xdfileOpenPath(path string) error {
-	return platformsystem.OpenPath(filepath.Clean(path))
+	return xdfileOpenPathViaHelper(path)
 }
 
 func xdfileDecodeCommandOutput(data []byte) string {

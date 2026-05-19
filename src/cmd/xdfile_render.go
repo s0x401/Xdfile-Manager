@@ -268,7 +268,6 @@ func (m *xdfileModel) renderPanel(index int) string {
 	innerW := max(10, rect.w-2)
 	innerH := max(4, rect.h-2)
 	rows := panel.visibleRows(rect.h)
-	panel.ensureVisible(rows)
 
 	titlePrefix := xdfileTagStyle.Render(panel.Label)
 	if index == m.activePanel {

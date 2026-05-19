@@ -23,6 +23,9 @@ func Run(content embed.FS) {
 	if xdfileMaybeRunPTYMouseProxy() {
 		return
 	}
+	if xdfileMaybeRunShellOpenHelper() {
+		return
+	}
 
 	// Enable custom colored help output
 	cli.HelpPrinter = CustomHelpPrinter //nolint:reassign // Intentionally reassigning to customize help output
